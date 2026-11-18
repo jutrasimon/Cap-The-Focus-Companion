@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <title>Pas maintenant · Cap</title>
+  <link rel="icon" href="icons/icon32.png" />
+  <link rel="stylesheet" href="blocked.css" />
+</head>
+<body>
+  <div class="glow"></div>
+  <main id="main">
+    <img class="mark" src="mark.png" alt="" />
+    <p class="kicker" id="kicker">Session de focus en cours</p>
+    <h1 id="h1">Pas maintenant.</h1>
+    <p class="site" id="site"></p>
+    <div class="goal hidden" id="goalBox">
+      <span>Ton objectif</span>
+      <strong id="goal"></strong>
+    </div>
+    <div class="gbox hidden" id="gaugeBox"><div class="gauge-fill" id="gaugeFill"></div></div>
+    <div class="time" id="time"></div>
+    <div class="time-label" id="timeLabel"></div>
+    <div class="acts">
+      <button id="back" class="primary">Retour au travail</button>
+      <a id="go" class="ghost hidden" href="#">Continuer vers le site</a>
+    </div>
+    <p class="foot" id="foot"></p>
+  </main>
+  <script src="blocked.js"></script>
+</body>
+</html>

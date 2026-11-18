@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <title>Cap</title>
+  <link rel="stylesheet" href="app.css" />
+</head>
+<body>
+  <div class="card" id="card">
+    <header data-tauri-drag-region>
+      <div class="brand"><img src="mark.png" alt="" /><span>Cap</span><small id="verTag"></small></div>
+      <div class="spacer" data-tauri-drag-region></div>
+      <button class="icon-btn" id="gearBtn" title="Réglages"></button>
+      <button class="icon-btn" id="minBtn" title="Réduire · Ctrl+Alt+F"></button>
+      <button class="icon-btn" id="closeBtn" title="Fermer"></button>
+    </header>
+
+    <nav class="tabs" id="tabs">
+      <button data-tab="focus"><i data-i="timer"></i><span>Focus</span></button>
+      <button data-tab="dossiers"><i data-i="folder"></i><span>Dossiers</span></button>
+      <button data-tab="jauges"><i data-i="globe"></i><span>Sites</span></button>
+      <button data-tab="rappels" id="tabRappels"><i data-i="bell"></i><span>Rappels</span></button>
+      <button data-tab="stats"><i data-i="chart"></i><span>Stats</span></button>
+    </nav>
+
+    <main>
+      <!-- Focus -->
+      <section class="view focus-view" data-view="focus">
+        <div class="ring-wrap" id="ringWrap">
+          <svg viewBox="0 0 224 224">
+            <defs><linearGradient id="grad" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="var(--a1)" /><stop offset="1" stop-color="var(--a2)" /></linearGradient></defs>
+            <circle class="ring-bg" cx="112" cy="112" r="98" />
+            <circle class="ring-fg" id="ring" cx="112" cy="112" r="98" />
+          </svg>
+          <div class="ring-center">
+            <input class="time-input" id="minInput" inputmode="numeric" maxlength="3" spellcheck="false" autocomplete="off" title="Minutes · tape, molette ou flèches" />
+            <span class="unit" id="minUnit">min</span>
+            <div class="time hidden" id="time"></div>
+          </div>
+        </div>
+        <div class="ctl-row" id="idleCtl">
+          <button class="round" id="minusBtn" title="−1 min (maintenir)"></button>
+          <button class="round big" id="startBtn" title="Lancer le focus · Entrée"></button>
+          <button class="round" id="plusBtn" title="+1 min (maintenir)"></button>
+        </div>
+        <div class="ctl-row hidden" id="runCtl">
+          <button class="round" id="plus5" title="+5 min">+5</button>
+          <button class="round big" id="pauseBtn" title="Pause · Espace"></button>
+          <button class="round" id="stopBtn" title="Terminer"></button>
+        </div>
+      </section>
+
+      <!-- Dossiers -->
+      <section class="view hidden" data-view="dossiers">
+        <div class="bar-row">
+          <form class="add-row" id="addDossier"><input id="dossierInput" maxlength="120" placeholder="Nouveau dossier" spellcheck="false" autocomplete="off" /><button type="submit" class="icon-btn solid" data-i="plus" title="Ajouter"></button></form>
+          <button class="icon-btn" id="archBtn" title="Archives"></button>
+        </div>
+        <div class="board" id="board"></div>
+        <div class="archives hidden" id="archives">
+          <div class="seg" id="archSeg"><button data-a="done" class="sel"><i data-i="check"></i><span id="archDoneN"></span></button><button data-a="dead"><i data-i="skull"></i><span id="archDeadN"></span></button></div>
+          <div class="arch-list" id="archList"></div>
+        </div>
+      </section>
+
+      <!-- Jauges -->
+      <section class="view hidden" data-view="jauges">
+        <form class="add-row" id="addSite"><input id="siteInput" placeholder="site.com" spellcheck="false" autocomplete="off" /><button type="submit" class="icon-btn solid" data-i="plus" title="Ajouter"></button></form>
+        <div class="list" id="siteList"></div>
+      </section>
+
+      <!-- Rappels -->
+      <section class="view hidden" data-view="rappels">
+        <div class="master" id="masterRow"><i id="masterIco"></i><b>Rappels</b><span class="pill-warn hidden" id="missedTag"></span><div class="switch" id="masterSwitch"></div></div>
+        <div class="sec-t"><i data-i="clock"></i>Uniques</div>
+        <div class="once-add" id="onceAdd">
+          <input id="onceInput" maxlength="80" placeholder="Quoi ?" spellcheck="false" autocomplete="off" title="Écris, puis choisis quand · Entrée = dans 15 min" />
+          <div class="chips" id="onceChips"></div>
+        </div>
+        <div class="list" id="onceList"></div>
+        <div class="sec-t"><i data-i="repeat"></i>Récurrents</div>
+        <div class="list" id="remList"></div>
+        <form class="add-row small" id="addRem"><input id="remInput" maxlength="60" placeholder="Quoi ?" spellcheck="false" autocomplete="off" title="Écris, puis Entrée · toutes les 30 min par défaut" /><button type="submit" class="icon-btn solid" data-i="plus" title="Ajouter"></button></form>
+      </section>
+
+      <!-- Stats -->
+      <section class="view hidden" data-view="stats">
+        <div class="seg" id="period"><button data-p="1">Jour</button><button data-p="7" class="sel">7 j</button><button data-p="30">30 j</button><button data-p="0">Tout</button></div>
+        <div class="stats" id="stats"></div>
+      </section>
+
+      <!-- Réglages -->
+      <section class="view hidden" data-view="settings">
+        <div class="list">
+          <div class="row" id="autoRow"><i data-i="power"></i><b>Démarrer avec Windows</b><div class="switch" id="autoSwitch"></div></div>
+          <div class="row" id="soundRow"><i data-i="sound"></i><b>Son de fin de focus</b><div class="switch" id="soundSwitch"></div></div>
+          <div class="row"><i data-i="folder"></i><b>Déclin des dossiers</b><div class="stepper" id="decayStep"></div></div>
+          <div class="row"><i data-i="keyboard"></i><b>Ouvrir / réduire</b><kbd>Ctrl Alt F</kbd></div>
+          <div class="row"><i data-i="keyboard"></i><b>Rappel rapide</b><kbd>Ctrl Alt R</kbd></div>
+          <div class="sec-t"><i data-i="plug"></i>Navigateurs<button class="icon-btn sm" id="openExt" data-i="folder" title="Dossier de l'extension"></button></div>
+          <div class="list" id="browserList"></div>
+          <div class="sec-t"><i data-i="star"></i>À propos</div>
+          <div class="row upd" id="updRow"><i data-i="down"></i><b id="updTxt">Mises à jour</b><button class="icon-btn sm" id="updBtn" title="Vérifier"></button></div>
+          <div class="about" id="about"></div>
+          <div class="row"><i data-i="power"></i><b>Quitter Cap</b><button class="icon-btn danger" id="quitBtn" data-i="close" title="Quitter"></button></div>
+        </div>
+      </section>
+    </main>
+    <div class="qpanel hidden" id="qpanel">
+      <input id="qInput" maxlength="120" spellcheck="false" autocomplete="off" />
+      <div class="chips" id="qChips"></div>
+    </div>
+    <div class="fab-wrap" id="fab">
+      <div class="fab-menu" id="fabMenu">
+        <button data-qa="rem" title="Rappel rapide · Ctrl+Alt+R"><i data-i="bellPlus"></i></button>
+        <button data-qa="dos" title="Nouveau dossier"><i data-i="folder"></i></button>
+        <button data-qa="focus" title="Lancer le focus"><i data-i="play"></i></button>
+      </div>
+      <button class="fab" id="fabBtn" title="Actions rapides"></button>
+    </div>
+    <div class="picker hidden" id="picker"></div>
+    <div class="tip hidden" id="tip"></div>
+  </div>
+  <script src="icons.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

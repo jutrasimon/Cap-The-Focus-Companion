@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <title>Cap</title>
+  <link rel="stylesheet" href="app.css" />
+  <style>
+    .nudge {
+      position: absolute; inset: 8px; border-radius: 18px; padding: 14px 14px 14px 14px;
+      background: linear-gradient(180deg, #1b1e26, #14161c); border: 1px solid var(--line);
+      box-shadow: 0 2px 6px rgba(0,0,0,.5), inset 0 1px 0 rgba(255,255,255,.05);
+      display: grid; grid-template-columns: 52px 1fr; grid-template-rows: auto 1fr auto; column-gap: 12px;
+      overflow: hidden; transform: translateX(110%); opacity: 0; cursor: pointer;
+      transition: transform .45s var(--ease), opacity .3s;
+    }
+    .nudge.in { transform: none; opacity: 1; }
+    .nudge:hover { border-color: rgba(255,255,255,.14); }
+    body.done .title { grid-row: 2; font-size: 16px; line-height: 1.25; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; padding-right: 14px; }
+    body.done .body { grid-row: 1; grid-column: 2; font-size: 10.5px; text-transform: uppercase; letter-spacing: .08em; color: var(--faint); margin: 0 0 2px; }
+    body.done .acts { grid-row: 3; margin-top: 6px; }
+    .badge {
+      grid-row: 1 / 4; width: 52px; height: 52px; border-radius: 16px; display: grid; place-items: center; position: relative;
+      background: linear-gradient(135deg, color-mix(in srgb, var(--a1) 28%, transparent), color-mix(in srgb, var(--a2) 18%, transparent));
+      color: var(--a1);
+    }
+    .badge svg { width: 24px; height: 24px; }
+    .badge .cd { position: absolute; inset: 0; display: grid; place-items: center; font: 600 18px/1 "Segoe UI Variable Display", "Segoe UI", system-ui; color: var(--text); font-variant-numeric: tabular-nums; }
+    .badge svg.ring { position: absolute; inset: 3px; width: 46px; height: 46px; transform: rotate(-90deg); }
+    .badge svg.ring circle { fill: none; stroke-width: 3; }
+    .title { font-weight: 650; font-size: 15px; margin-top: 1px; }
+    .body { font-size: 12.5px; color: var(--muted); line-height: 1.35; margin-top: 2px; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+    .acts { display: flex; gap: 6px; justify-content: flex-end; margin-top: 8px; }
+    .acts button { height: 30px; padding: 0 11px; white-space: nowrap; border-radius: 10px; font-size: 12.5px; font-weight: 600; color: var(--muted); background: var(--panel); }
+    .acts button:hover { color: var(--text); background: var(--panel-hi); }
+    .acts button.main { color: #1a1206; background: linear-gradient(135deg, var(--a1), var(--a2)); }
+    .x { position: absolute; top: 8px; right: 8px; width: 22px; height: 22px; border-radius: 7px; color: var(--faint); display: grid; place-items: center; }
+    .x:hover { color: var(--text); background: var(--panel-hi); }
+    .x svg { width: 13px; height: 13px; }
+    .ttl { position: absolute; left: 0; bottom: 0; height: 2px; width: 100%; transform-origin: left; background: linear-gradient(90deg, var(--a1), var(--a2)); opacity: .55; }
+    .confetti { position: absolute; left: 34px; top: 34px; width: 7px; height: 7px; border-radius: 2px; pointer-events: none; animation: burst 1.1s var(--ease) forwards; }
+    @keyframes burst { to { transform: translate(var(--x), var(--y)) rotate(var(--r)); opacity: 0; } }
+    body.ok { --a1: #5ad7b4; --a2: #3aa6d8; }
+  </style>
+</head>
+<body>
+  <div class="nudge" id="n">
+    <div class="badge" id="badge"></div>
+    <div class="title" id="title"></div>
+    <div class="body" id="body"></div>
+    <div class="acts" id="acts"></div>
+    <button class="x" id="x" title="Fermer"></button>
+    <div class="ttl" id="ttl"></div>
+  </div>
+  <script src="icons.js"></script>
+  <script src="nudge.js"></script>
+</body>
+</html>

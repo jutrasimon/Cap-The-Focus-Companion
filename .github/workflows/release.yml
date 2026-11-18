@@ -1,0 +1,56 @@
+# Publier une version : python scripts/bump.py 1.4.0, commit, puis git tag v1.4.0 && git push --tags
+name: Release
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - run: npm install
+
+      - name: Extensions (zip)
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist | Out-Null
+          Compress-Archive -Path extension/* -DestinationPath dist/cap-extension-chromium.zip
+          New-Item -ItemType Directory -Force build/ff | Out-Null
+          Copy-Item -Recurse extension/* build/ff/
+          Copy-Item firefox/manifest.json build/ff/manifest.json -Force
+          Compress-Archive -Path build/ff/* -DestinationPath dist/cap-extension-firefox.zip
+
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
+        with:
+          tagName: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
+          releaseName: "Cap ${{ github.ref_name }}"
+          releaseBody: "Télécharge `Cap_*_x64-setup.exe` pour installer Cap. Les extensions sont dans les fichiers `cap-extension-*.zip`."
+          releaseDraft: false
+          prerelease: false
+          includeUpdaterJson: true
+
+      - name: Joindre les extensions
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload ${{ github.ref_name }} dist/cap-extension-chromium.zip dist/cap-extension-firefox.zip --clobber

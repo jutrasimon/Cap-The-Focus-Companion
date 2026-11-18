@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <title>Cap</title>
+  <link rel="stylesheet" href="app.css" />
+  <style>
+    .mini {
+      position: absolute; inset: 6px; border-radius: 99px; display: flex; align-items: center; gap: 8px; padding: 0 6px 0 12px;
+      background: rgba(20, 22, 28, 0.94); border: 1px solid var(--line); box-shadow: 0 2px 5px rgba(0,0,0,.45);
+      cursor: grab; overflow: hidden; animation: viewIn .25s var(--ease);
+    }
+    .mini:hover { background: rgba(28, 31, 39, 0.97); }
+    .logo { width: 18px; height: 18px; flex: none; }
+    .running .logo { animation: spin 6s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .pdot { width: 9px; height: 9px; border-radius: 50%; background: linear-gradient(135deg, var(--a1), var(--a2)); flex: none; animation: pulse 3s ease-in-out infinite; }
+    .idle .pdot { animation: none; background: var(--faint); }
+    .paused .pdot { animation: none; background: var(--muted); }
+    @keyframes pulse { 50% { box-shadow: 0 0 0 5px color-mix(in srgb, var(--a2) 18%, transparent); } }
+    .g { flex: 1; min-width: 0; font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: flex; align-items: center; gap: 6px; }
+    .g svg { width: 14px; height: 14px; color: var(--accent); flex: none; }
+    .idle .g { color: var(--muted); font-weight: 500; }
+    .t { font: 500 13px/1 "Segoe UI Variable Display", "Segoe UI", system-ui; font-variant-numeric: tabular-nums; color: var(--muted); }
+    .mini .icon-btn { width: 28px; height: 28px; border-radius: 50%; }
+    .mini .icon-btn svg { width: 14px; height: 14px; }
+    .bar { position: absolute; left: 0; bottom: 0; height: 2px; background: linear-gradient(90deg, var(--a1), var(--a2)); transition: width 1s linear; }
+  </style>
+</head>
+<body>
+  <div class="mini idle" id="m" >
+    <img class="logo" src="mark.png" alt="" /><span class="g" id="g"></span><span class="t" id="t"></span>
+    <button class="icon-btn" id="go" title="Focus"></button>
+    <button class="icon-btn" id="ex" title="Ouvrir"></button>
+    <button class="icon-btn" id="cl" title="Fermer"></button>
+    <span class="bar" id="bar"></span>
+  </div>
+  <script src="icons.js"></script>
+  <script src="mini.js"></script>
+</body>
+</html>
