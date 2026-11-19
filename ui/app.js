@@ -937,3 +937,4 @@ T.event.listen("tick", (e) => { const keep = S ? { autostart: S.autostart, about
 // La langue du système sert quand le réglage est « Automatique »
 invoke("set_system_lang", { lang: navigator.language || "en" }).then(refresh).catch(() => {});
 T.event.listen("quick", () => openQuick("rem"));
+document.addEventListener("visibilitychange", () => { if (!document.hidden && primed) refresh(); });

@@ -423,7 +423,7 @@ dependencies = [
 
 [[package]]
 name = "cap"
-version = "1.4.2"
+version = "1.5.1"
 dependencies = [
  "serde",
  "serde_json",
@@ -433,6 +433,8 @@ dependencies = [
  "tauri-plugin-global-shortcut",
  "tauri-plugin-single-instance",
  "tauri-plugin-updater",
+ "webview2-com",
+ "windows-core",
  "windows-sys 0.59.0",
 ]
 

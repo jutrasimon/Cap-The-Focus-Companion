@@ -624,7 +624,7 @@ const NUDGE_SIZE: (f64, f64) = (360.0, 150.0);
 const STACK_W: f64 = 300.0;
 const STACK_ROW: f64 = 46.0;
 const STACK_MAX: usize = 5;
-const WEBVIEW_ARGS: &str = "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection,Translate,OptimizationHints,MediaRouter,AutofillServerCommunication,SpareRendererForSitePerProcess --disable-background-networking --disable-component-update --disable-sync --disable-default-apps --disable-breakpad --no-first-run --no-pings";
+const WEBVIEW_ARGS: &str = "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection,Translate,OptimizationHints,MediaRouter,AutofillServerCommunication,SpareRendererForSitePerProcess --disable-background-networking --disable-component-update --disable-sync --disable-default-apps --disable-breakpad --no-first-run --no-pings --js-flags=--lite-mode";
 
 /// Demande d'ouverture du rappel unique, pour une fenêtre pas encore chargée
 static PENDING_QUICK: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
@@ -711,11 +711,60 @@ fn retire_window(app: &AppHandle, label: &str) {
     });
 }
 
+/// Cache une fenêtre gardée en vie, puis la met en veille 2 s plus tard si elle est toujours cachée :
+/// son moteur libère alors l'essentiel de sa mémoire.
 fn hide_window(app: &AppHandle, label: &str) {
-    if let Some(w) = app.get_webview_window(label) {
-        let _ = w.hide();
-    }
+    let Some(w) = app.get_webview_window(label) else { return };
+    let _ = w.hide();
+    let (a, l) = (app.clone(), label.to_string());
+    thread::spawn(move || {
+        thread::sleep(Duration::from_secs(2));
+        let a2 = a.clone();
+        let _ = a.run_on_main_thread(move || {
+            if let Some(w) = a2.get_webview_window(&l) {
+                if !w.is_visible().unwrap_or(true) {
+                    sleep_webview(&w, true);
+                }
+            }
+        });
+    });
 }
+
+/// Réveille avant d'afficher.
+fn show_window(w: &WebviewWindow) {
+    sleep_webview(w, false);
+    let _ = w.show();
+}
+
+#[cfg(windows)]
+fn sleep_webview(w: &WebviewWindow, sleep: bool) {
+    let _ = w.with_webview(move |wv| unsafe {
+        use webview2_com::Microsoft::Web::WebView2::Win32::*;
+        use windows_core::Interface;
+        let ctl = wv.controller();
+        let Ok(core) = ctl.CoreWebView2() else { return };
+        if let Ok(c19) = core.cast::<ICoreWebView2_19>() {
+            let _ = c19.SetMemoryUsageTargetLevel(if sleep {
+                COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_LOW
+            } else {
+                COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_NORMAL
+            });
+        }
+        if let Ok(c3) = core.cast::<ICoreWebView2_3>() {
+            if sleep {
+                let _ = ctl.SetIsVisible(false);
+                let h = webview2_com::TrySuspendCompletedHandler::create(Box::new(|_, _| Ok(())));
+                let _ = c3.TrySuspend(&h);
+            } else {
+                let _ = c3.Resume();
+                let _ = ctl.SetIsVisible(true);
+            }
+        }
+    });
+}
+
+#[cfg(not(windows))]
+fn sleep_webview(_: &WebviewWindow, _: bool) {}
 
 /// Applique le mode : "full" (fenêtre complète), "mini" (bulle) ou "closed" (rien à l'écran).
 /// La bulle prend la place du coin haut droit de la fenêtre, et inversement.
@@ -739,12 +788,13 @@ fn apply_mode_now(app: &AppHandle, mode: &str, focus: bool) {
     let main_pos = visible_pos("main")
         .or_else(|| POS.lock().ok().and_then(|p| p[0]).map(|[x, y]| (x, y)))
         .unwrap_or((ax + aw - mw - px(14.0), ay + ah - mh - px(14.0)));
+    SHOWN.store(match mode { "mini" => 2, "closed" => 0, _ => 1 }, std::sync::atomic::Ordering::Relaxed);
     match mode {
         "mini" => {
             let (mx, my) = main_pos;
             if let Some(b) = ensure_window(app, "mini") {
                 let _ = b.set_position(PhysicalPosition::new(mx + mw - bw - d4, my + d4));
-                let _ = b.show();
+                show_window(&b);
             }
             hide_window(app, "main");
         }
@@ -761,7 +811,7 @@ fn apply_mode_now(app: &AppHandle, mode: &str, focus: bool) {
             my = my.clamp(ay, (ay + ah - mh).max(ay));
             if let Some(w) = ensure_window(app, "main") {
                 let _ = w.set_position(PhysicalPosition::new(mx, my));
-                let _ = w.show();
+                show_window(&w);
                 if focus {
                     let _ = w.set_focus();
                 }
@@ -858,12 +908,24 @@ fn apply_tray(app: &AppHandle, i: TrayInfo) {
     }
 }
 
+/// Fenêtre affichée : 0 aucune, 1 principale, 2 bulle. Seule celle-là reçoit l'état,
+/// les fenêtres en veille n'accumulent rien.
+static SHOWN: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
+
+fn emit_tick<S: serde::Serialize + Clone>(app: &AppHandle, snap: S) {
+    match SHOWN.load(std::sync::atomic::Ordering::Relaxed) {
+        1 => { let _ = app.emit_to("main", "tick", snap); }
+        2 => { let _ = app.emit_to("mini", "tick", snap); }
+        _ => {}
+    }
+}
+
 /// Enregistre, réveille l'extension et pousse l'état. Appelé depuis le fil principal.
 fn commit(app: &AppHandle, sh: &Shared, d: &mut Data) {
     d.version += 1;
     d.save();
     sh.cv.notify_all();
-    let _ = app.emit("tick", d.snapshot());
+    let _ = emit_tick(&app, d.snapshot());
     apply_tray(app, TrayInfo::of(d));
 }
 
@@ -1131,7 +1193,7 @@ fn ticker(app: AppHandle, sh: S) {
             present_nudge(&app, &n);
         }
         if !snap.is_null() {
-            let _ = app.emit("tick", snap);
+            let _ = emit_tick(&app, snap);
         }
         apply_tray(&app, tray);
 
@@ -1280,7 +1342,7 @@ fn handle(mut stream: TcpStream, app: AppHandle, sh: S) -> std::io::Result<()> {
                 sh.cv.notify_all();
                 d.snapshot()
             };
-            let _ = app.emit("tick", snap);
+            let _ = emit_tick(&app, snap);
             respond(&mut stream, "200 OK", &json!({ "ok": true, "site": site }).to_string())
         }
         "/hit" => {
