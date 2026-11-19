@@ -375,6 +375,7 @@ const stepEvery = (m, d) => {
 function renderSettings() {
   $("autoSwitch").classList.toggle("on", !!S.autostart);
   $("soundSwitch").classList.toggle("on", S.settings.sound);
+  $("lightSwitch").classList.toggle("on", !!S.settings.light);
   setHTML($("decayStep"), `<button data-dd="-1">${I.minus}</button><span>${t("fmt.perDay", { n: S.settings.dossier_decay })}</span><button data-dd="1">${I.plus}</button>`);
   const sc = (a) => a.split("+").map((k) => (["ctrl", "alt", "shift", "super", "space"].includes(k) ? t(`key.${k}`) : k.replace(/^key/, "").toUpperCase())).join(" ");
   // Langue
@@ -728,6 +729,8 @@ function bind() {
   // Réglages
   $("autoRow").onclick = async () => { S.autostart = await invoke("set_autostart", { on: !S.autostart }); renderSettings(); };
   $("soundRow").onclick = () => saveSettings((c) => (c.sound = !c.sound));
+  // Réglage du moteur : Cap redémarre pour l'appliquer
+  $("lightRow").onclick = () => { saveSettings((c) => (c.light = !c.light)); setTimeout(() => invoke("restart"), 300); };
   $("decayStep").onclick = (e) => { const b = e.target.closest("[data-dd]"); if (b) saveSettings((c) => (c.dossier_decay = Math.max(1, Math.min(50, c.dossier_decay + +b.dataset.dd)))); };
   $("openExt").onclick = () => invoke("open_extension_folder");
   // Raccourcis : clic sur la ligne, puis la combinaison voulue

@@ -355,7 +355,7 @@ main { flex: 1; position: relative; min-height: 0; }
 /* ------------------------------------------------------------ infobulles */
 .tip {
   position: fixed; z-index: 20; pointer-events: none; padding: 6px 10px; border-radius: 9px; background: #f4f4f6; color: #15171c;
-  font-size: 11.5px; font-weight: 600; white-space: nowrap; box-shadow: 0 6px 18px rgba(0,0,0,.45);
+  font-size: 11.5px; font-weight: 600; width: max-content; max-width: min(300px, calc(100vw - 32px)); text-align: center; box-shadow: 0 6px 18px rgba(0,0,0,.45);
   opacity: 0; transform: translateY(3px) scale(.97); transition: opacity .12s, transform .12s var(--ease);
 }
 .tip.show { opacity: 1; transform: none; }

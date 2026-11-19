@@ -263,5 +263,7 @@
   "site.modeGauge": "With gauge",
   "site.modeFocus": "Focus only: blocked during focus, no gauge",
   "site.focusTag": "Focus",
-  "site.focusTip": "Blocked only during focus"
+  "site.focusTip": "Blocked only during focus",
+  "set.light": "Light mode",
+  "set.lightTip": "Less memory: no graphics acceleration, a single display process. Cap restarts."
 }

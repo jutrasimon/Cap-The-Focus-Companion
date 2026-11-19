@@ -263,5 +263,7 @@
   "site.modeGauge": "Avec jauge",
   "site.modeFocus": "Focus seulement : bloqué pendant le focus, sans jauge",
   "site.focusTag": "Focus",
-  "site.focusTip": "Bloqué seulement pendant le focus"
+  "site.focusTip": "Bloqué seulement pendant le focus",
+  "set.light": "Mode léger",
+  "set.lightTip": "Moins de mémoire : sans accélération graphique, un seul processus d'affichage. Cap redémarre."
 }
