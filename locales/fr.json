@@ -265,5 +265,5 @@
   "site.focusTag": "Focus",
   "site.focusTip": "Bloqué seulement pendant le focus",
   "set.light": "Mode léger",
-  "set.lightTip": "Moins de mémoire : sans accélération graphique, un seul processus d'affichage. Cap redémarre."
+  "set.lightTip": "Moins de mémoire : sans accélération graphique. Cap redémarre."
 }

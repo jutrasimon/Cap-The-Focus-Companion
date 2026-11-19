@@ -634,8 +634,9 @@ const STACK_W: f64 = 300.0;
 const STACK_ROW: f64 = 46.0;
 const STACK_MAX: usize = 5;
 const WEBVIEW_ARGS: &str = "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection,Translate,OptimizationHints,MediaRouter,AutofillServerCommunication,SpareRendererForSitePerProcess --disable-background-networking --disable-component-update --disable-sync --disable-default-apps --disable-breakpad --no-first-run --no-pings --js-flags=--lite-mode";
-/// Ajouté en mode léger : rendu logiciel (plus de processus GPU) et un seul processus d'affichage.
-const LIGHT_ARGS: &str = " --disable-gpu --disable-gpu-compositing --renderer-process-limit=1";
+/// Ajouté en mode léger : rendu logiciel (plus de processus GPU).
+/// Pas de --renderer-process-limit=1 : présent en 1.4.1-1.5.0 et 1.7.x, versions qui plantaient.
+const LIGHT_ARGS: &str = " --disable-gpu --disable-gpu-compositing";
 static ARGS: std::sync::OnceLock<String> = std::sync::OnceLock::new();
 
 /// Demande d'ouverture du rappel unique, pour une fenêtre pas encore chargée

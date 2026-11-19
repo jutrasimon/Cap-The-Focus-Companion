@@ -265,5 +265,5 @@
   "site.focusTag": "Focus",
   "site.focusTip": "Blocked only during focus",
   "set.light": "Light mode",
-  "set.lightTip": "Less memory: no graphics acceleration, a single display process. Cap restarts."
+  "set.lightTip": "Less memory: no graphics acceleration. Cap restarts."
 }
