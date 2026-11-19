@@ -17,6 +17,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Textes (règle dure)
+        run: python scripts/check_i18n.py
+
       - uses: actions/setup-node@v4
         with:
           node-version: 20

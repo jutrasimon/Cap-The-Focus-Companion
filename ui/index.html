@@ -74,6 +74,9 @@
       <!-- Rappels -->
       <section class="view hidden" data-view="rappels">
         <div class="master" id="masterRow"><i id="masterIco"></i><b data-t="rem.title">Rappels</b><span class="pill-warn hidden" id="missedTag"></span><div class="switch" id="masterSwitch"></div></div>
+        <div class="row" id="missRow"><i data-i="bellOff"></i><b data-t="rem.missesToPause">Pause après</b><div class="stepper" id="missStep" data-t-tip="rem.missesTip"></div></div>
+        <div class="sec-t hidden" id="pendHead" data-t-tip="rem.pendingTip"><i data-i="bell"></i><span data-t="rem.pending">En attente</span></div>
+        <div class="list" id="pendList"></div>
         <div class="sec-t"><i data-i="clock"></i><span data-t="rem.once">Uniques</span></div>
         <form class="once-row" id="onceAdd">
           <input id="onceInput" maxlength="80" data-t-ph="rem.whatPh" spellcheck="false" autocomplete="off" />

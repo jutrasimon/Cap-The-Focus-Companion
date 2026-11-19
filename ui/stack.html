@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <title>Cap</title>
+  <link rel="stylesheet" href="app.css" />
+  <style>
+    .stack { position: absolute; inset: 6px; display: flex; flex-direction: column; gap: 4px; }
+    .pr {
+      display: flex; align-items: center; gap: 8px; height: 42px; padding: 0 6px 0 10px; border-radius: 13px; flex: none;
+      background: rgba(22, 24, 31, .96); border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+      box-shadow: 0 2px 6px rgba(0,0,0,.45); animation: slideIn .3s var(--ease); cursor: pointer;
+    }
+    .pr:hover { background: rgba(30, 33, 41, .98); }
+    @keyframes slideIn { from { opacity: 0; transform: translateX(30px); } }
+    .pi { width: 26px; height: 26px; border-radius: 8px; display: grid; place-items: center; color: var(--accent); background: rgba(255,255,255,.05); flex: none; }
+    .pi svg { width: 15px; height: 15px; }
+    .pl { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+    .pl b { font-size: 12.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .pl span { font-size: 10.5px; color: var(--muted); }
+    .pb { width: 28px; height: 28px; border-radius: 9px; display: grid; place-items: center; color: var(--muted); flex: none; }
+    .pb:hover { background: var(--panel-hi); color: var(--text); }
+    .pb.ok { color: #1a1206; background: linear-gradient(135deg, var(--a1), var(--a2)); }
+    .pb svg { width: 14px; height: 14px; }
+    .more { font-size: 11px; color: var(--muted); text-align: right; padding: 0 8px; }
+  </style>
+</head>
+<body>
+  <div class="stack" id="st"></div>
+  <script src="icons.js"></script>
+  <script src="stack.js"></script>
+</body>
+</html>

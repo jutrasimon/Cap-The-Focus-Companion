@@ -1,5 +1,5 @@
 // Textes par défaut (français). Cap envoie ceux de la langue choisie.
-// Généré depuis locales/fr.json.
+// Généré depuis locales/fr.json par scripts/check_i18n.py --fix.
 globalThis.CAP_FR = {
  "ext.focusNow": "Session de focus en cours",
  "ext.focusPaused": "Session en pause",

@@ -48,7 +48,7 @@ async function setRules(sites) {
         : [],
     });
   } catch (e) {
-    console.warn("Cap: règles réseau indisponibles", e);
+    console.warn("Cap: règles réseau indisponibles", e); // i18n-ok : journal développeur
   }
 }
 

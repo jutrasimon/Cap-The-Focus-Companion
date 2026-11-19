@@ -442,6 +442,11 @@ select.sel { height: 30px; border-radius: 9px; border: 1px solid var(--line); ba
 select.sel:focus { border-color: color-mix(in srgb, var(--accent) 55%, transparent); }
 
 /* fondu sous le bouton d'actions rapides */
-main::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 64px; pointer-events: none; background: linear-gradient(to bottom, transparent, var(--bg) 85%); z-index: 2; }
+main::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 96px; pointer-events: none; background: linear-gradient(to bottom, transparent, var(--bg) 62%); z-index: 2; }
 .add-row.small .icon-btn.solid { width: 38px; height: 38px; }
 .add-row.small input { height: 38px; font-size: 13.5px; }
+
+.rem.pend { border-color: color-mix(in srgb, var(--accent) 30%, transparent); }
+.icon-btn.solid.sm2 { width: 30px; height: 30px; border-radius: 10px; }
+.icon-btn.solid.sm2 svg { width: 15px; height: 15px; }
+#missRow .stepper { grid-template-columns: 24px 84px 24px; }

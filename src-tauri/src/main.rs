@@ -30,8 +30,7 @@ const PORT: u16 = 47615;
 const LEASE_MS: u64 = 3 * 60_000;
 const NUDGE_GAP_MS: u64 = 4 * 60_000;
 const SNOOZE_MS: u64 = 10 * 60_000;
-const REMINDER_TTL_S: u32 = 120; // sans confirmation après 2 min : rappel raté
-const MISSES_TO_PAUSE: u32 = 2;
+const REMINDER_TTL_S: u32 = 120; // sans confirmation après 2 min : mis de côté dans la pile
 
 // ================================================================ langues
 
@@ -185,6 +184,8 @@ struct Settings {
     sc_quick: String,
     /// "auto" ou un code de langue
     lang: String,
+    /// Rappels ratés de suite avant la mise en pause
+    misses_to_pause: u32,
 }
 
 impl Default for Settings {
@@ -210,6 +211,7 @@ impl Default for Settings {
             sc_open: "ctrl+alt+f".into(),
             sc_quick: "ctrl+alt+r".into(),
             lang: "auto".into(),
+            misses_to_pause: 2,
         }
     }
 }
@@ -330,7 +332,19 @@ struct Nudge {
     once: Option<Reminder>,
 }
 
+/// Rappel affiché mais pas encore confirmé. Il reste réclamable jusqu'au prochain rappel du même type.
+#[derive(Serialize, Deserialize, Clone)]
+struct Pending {
+    rid: String,
+    label: String,
+    icon: String,
+    at: u64,
+    #[serde(skip)]
+    once: Option<Reminder>,
+}
+
 struct Data {
+    pending: Vec<Pending>,
     settings: Settings,
     session: Option<Session>,
     dossiers: Vec<Dossier>,
@@ -530,6 +544,7 @@ impl Data {
             "ext": self.ext_connected(now),
             "next": self.next_reminder(now),
             "missed": self.missed_streak,
+            "pending": self.pending,
             "update": UPDATE.lock().ok().and_then(|u| u.clone()),
             // Temps avant chaque rappel récurrent (absent si en pause ou désactivé)
             "due": self.due.iter().map(|(k, t)| (k.clone(), json!(t.saturating_sub(now)))).collect::<serde_json::Map<String, Value>>(),
@@ -560,6 +575,20 @@ impl Data {
         })
     }
 
+    /// Met un rappel de côté : il attend d'être confirmé.
+    fn park(&mut self, n: &Nudge) {
+        self.pending.retain(|p| p.rid != n.rid);
+        self.pending.push(Pending { rid: n.rid.clone(), label: n.title.clone(), icon: n.icon.clone(), at: n.shown_at, once: n.once.clone() });
+    }
+
+    /// Le rappel suivant du même type arrive : celui en attente est perdu.
+    fn lose_pending(&mut self, rid: &str) {
+        if let Some(i) = self.pending.iter().position(|p| p.rid == rid) {
+            let p = self.pending.remove(i);
+            self.reminder_missed(&p.label);
+        }
+    }
+
     fn arm_nudge(&mut self, mut n: Nudge) -> Nudge {
         n.shown_at = now_ms();
         self.last_nudge = n.shown_at;
@@ -570,7 +599,7 @@ impl Data {
     fn reminder_missed(&mut self, label: &str) {
         self.missed_streak += 1;
         self.log("rem_missed", label, 0.0);
-        if self.missed_streak >= MISSES_TO_PAUSE && self.settings.reminders_on {
+        if self.missed_streak >= self.settings.misses_to_pause.max(1) && self.settings.reminders_on {
             self.settings.reminders_on = false;
             // Chaque rappel s'éteint aussi, comme si on l'avait fait à la main
             let mut ids = vec![];
@@ -592,6 +621,9 @@ impl Data {
 const MAIN_SIZE: (f64, f64) = (400.0, 604.0);
 const MINI_SIZE: (f64, f64) = (250.0, 56.0);
 const NUDGE_SIZE: (f64, f64) = (360.0, 150.0);
+const STACK_W: f64 = 300.0;
+const STACK_ROW: f64 = 46.0;
+const STACK_MAX: usize = 5;
 const WEBVIEW_ARGS: &str = "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection,Translate,OptimizationHints,MediaRouter,AutofillServerCommunication,SpareRendererForSitePerProcess --renderer-process-limit=1 --disable-background-networking --disable-component-update --disable-sync --disable-default-apps --disable-breakpad --no-first-run --no-pings";
 
 /// Demande d'ouverture du rappel unique, pour une fenêtre pas encore chargée
@@ -613,6 +645,7 @@ fn ensure_window(app: &AppHandle, label: &str) -> Option<WebviewWindow> {
     let (url, (w, h), focus) = match label {
         "main" => ("index.html", MAIN_SIZE, true),
         "mini" => ("mini.html", MINI_SIZE, false),
+        "stack" => ("stack.html", (STACK_W, 120.0), false),
         _ => ("nudge.html", NUDGE_SIZE, false),
     };
     let win = tauri::WebviewWindowBuilder::new(app, label, tauri::WebviewUrl::App(url.into()))
@@ -872,6 +905,30 @@ fn present_nudge(app: &AppHandle, n: &Nudge) {
     });
 }
 
+/// Pile des rappels en attente, au-dessus de l'emplacement des notifications.
+fn present_stack(app: &AppHandle, pending: Vec<Pending>) {
+    let a = app.clone();
+    let _ = app.run_on_main_thread(move || {
+        if pending.is_empty() {
+            destroy_window(&a, "stack");
+            return;
+        }
+        let existed = a.get_webview_window("stack").is_some();
+        if let Some(w) = ensure_window(&a, "stack") {
+            let rows = pending.len().min(STACK_MAX) as f64 + if pending.len() > STACK_MAX { 0.6 } else { 0.0 };
+            let h = 16.0 + rows * STACK_ROW;
+            let _ = w.set_size(tauri::LogicalSize::new(STACK_W, h));
+            let (ax, ay, aw, ah, sc) = monitor_area(&a);
+            let px = |v: f64| (v * sc).round() as i32;
+            let _ = w.set_position(PhysicalPosition::new(ax + aw - px(STACK_W) - px(14.0), ay + ah - px(NUDGE_SIZE.1) - px(h) - px(10.0)));
+            if existed {
+                let _ = a.emit_to("stack", "stack", &pending);
+            }
+            let _ = w.show();
+        }
+    });
+}
+
 fn hide_nudge_window(app: &AppHandle) {
     let a = app.clone();
     let _ = app.run_on_main_thread(move || destroy_window(&a, "nudge"));
@@ -932,16 +989,23 @@ fn ticker(app: AppHandle, sh: S) {
                 show = Some(d.arm_nudge(n));
             }
 
-            // Rappel non confirmé à temps : raté
+            let pending_before = d.pending.len();
+            // Rappel non confirmé à temps : il passe dans la pile, encore réclamable
             if let Some(n) = d.nudge.clone() {
                 if now.saturating_sub(n.shown_at) > n.ttl as u64 * 1000 {
                     d.nudge = None;
                     hide = true;
                     if n.missable {
-                        d.reminder_missed(&n.title);
+                        d.park(&n);
                     }
                     changed = true;
                 }
+            }
+            // Un rappel unique en attente depuis 12 h est perdu
+            let stale: Vec<String> = d.pending.iter().filter(|p| p.once.is_some() && now.saturating_sub(p.at) > 12 * 3_600_000).map(|p| p.rid.clone()).collect();
+            for rid in stale {
+                d.lose_pending(&rid);
+                changed = true;
             }
 
             // Rappels uniques : sonnent à l'heure dite, puis s'effacent
@@ -960,6 +1024,11 @@ fn ticker(app: AppHandle, sh: S) {
                 for r in list.iter() {
                     let every = r.every_min.max(1) as u64 * 60_000;
                     let due = *d.due.entry(r.id.clone()).or_insert(now + every);
+                    // Le rappel revient : l'occurrence précédente non confirmée est perdue
+                    if now >= due && d.pending.iter().any(|p| p.rid == r.id) {
+                        d.lose_pending(&r.id);
+                        changed = true;
+                    }
                     if now >= due && d.nudge.is_none() && show.is_none() && now.saturating_sub(d.last_nudge) >= NUDGE_GAP_MS {
                         d.due.insert(r.id.clone(), now + every);
                         let n = reminder_nudge(r, false);
@@ -1026,14 +1095,18 @@ fn ticker(app: AppHandle, sh: S) {
                 d.save();
             }
             let mini_text = d.settings.mode == "mini";
+            let stack = if changed || d.pending.len() != pending_before { Some(d.pending.clone()) } else { None };
             // Personne n'affiche l'état : on évite de le construire
             let shown = app.get_webview_window("main").is_some() || app.get_webview_window("mini").is_some();
-            (if shown { d.snapshot() } else { Value::Null }, show, hide, TrayInfo::of(&d), mini_text)
+            (if shown { d.snapshot() } else { Value::Null }, show, hide, TrayInfo::of(&d), (mini_text, stack))
         };
 
         // 2. Interface, verrou relâché.
         if hide {
             hide_nudge_window(&app);
+        }
+        if let Some(p) = mini_text.1.clone() {
+            present_stack(&app, p);
         }
         if let Some(n) = show {
             present_nudge(&app, &n);
@@ -1042,7 +1115,7 @@ fn ticker(app: AppHandle, sh: S) {
             let _ = app.emit("tick", snap);
         }
         apply_tray(&app, tray);
-        let _ = mini_text;
+
     }
 }
 
@@ -1050,7 +1123,7 @@ fn ticker(app: AppHandle, sh: S) {
 
 fn serve(app: AppHandle, sh: S) {
     let Ok(listener) = TcpListener::bind(("127.0.0.1", PORT)) else {
-        eprintln!("Cap: port {PORT} occupé, extension non disponible");
+        eprintln!("Cap: port {PORT} occupé, extension non disponible"); // i18n-ok : journal développeur
         return;
     };
     for stream in listener.incoming().flatten() {
@@ -1519,6 +1592,7 @@ fn save_settings(app: AppHandle, st: State<S>, settings: Settings) {
     s.sc_open = d.settings.sc_open.clone();
     s.sc_quick = d.settings.sc_quick.clone();
     s.lang = d.settings.lang.clone();
+    s.misses_to_pause = s.misses_to_pause.clamp(1, 20);
     s.mini_pos = d.settings.mini_pos;
     d.settings = s;
     commit(&app, &st, &mut d);
@@ -1577,7 +1651,42 @@ fn reminder_delete(app: AppHandle, st: State<S>, id: String) {
     let mut d = st.d.lock().unwrap();
     d.settings.reminders.retain(|r| r.id != id);
     d.due.remove(&id);
+    d.pending.retain(|p| p.rid != id);
+    let p = d.pending.clone();
     commit(&app, &st, &mut d);
+    drop(d);
+    present_stack(&app, p);
+}
+
+/// Réclamer un rappel en attente : il compte comme confirmé.
+#[tauri::command]
+fn pending_claim(app: AppHandle, st: State<S>, rid: String) {
+    let mut d = st.d.lock().unwrap();
+    if let Some(i) = d.pending.iter().position(|p| p.rid == rid) {
+        let p = d.pending.remove(i);
+        d.missed_streak = 0;
+        d.log("rem_ack", &p.label, 0.0);
+    }
+    let p = d.pending.clone();
+    commit(&app, &st, &mut d);
+    drop(d);
+    present_stack(&app, p);
+}
+
+/// Laisser tomber un rappel en attente : il compte comme raté.
+#[tauri::command]
+fn pending_drop(app: AppHandle, st: State<S>, rid: String) {
+    let mut d = st.d.lock().unwrap();
+    d.lose_pending(&rid);
+    let p = d.pending.clone();
+    commit(&app, &st, &mut d);
+    drop(d);
+    present_stack(&app, p);
+}
+
+#[tauri::command]
+fn get_pending(st: State<S>) -> Vec<Pending> {
+    st.d.lock().unwrap().pending.clone()
 }
 
 #[tauri::command]
@@ -1604,6 +1713,7 @@ fn get_nudge(st: State<S>) -> Option<Nudge> {
 #[tauri::command]
 fn nudge_action(app: AppHandle, st: State<S>, action: String) {
     let mut open = false;
+    let stack: Option<Vec<Pending>>;
     {
         let mut d = st.d.lock().unwrap();
         let Some(n) = d.nudge.take() else {
@@ -1646,12 +1756,17 @@ fn nudge_action(app: AppHandle, st: State<S>, action: String) {
                 open = true;
             }
             // Fermer sans confirmer un rappel : il compte comme raté.
-            "dismiss" if n.missable => d.reminder_missed(&n.title),
+            // Fermer sans confirmer : mis de côté, encore réclamable
+            "dismiss" if n.missable => d.park(&n),
             _ => {}
         }
         commit(&app, &st, &mut d);
+        stack = Some(d.pending.clone());
     }
     hide_nudge_window(&app);
+    if let Some(p) = stack {
+        present_stack(&app, p);
+    }
     if open {
         set_mode_inner(&app, &st, "full");
     }
@@ -1845,6 +1960,9 @@ fn main() {
             install_update,
             set_shortcut,
             get_perf,
+            pending_claim,
+            pending_drop,
+            get_pending,
             set_system_lang,
             set_lang,
             import_locale,
@@ -1879,6 +1997,7 @@ fn main() {
             }
             let sh: S = Arc::new(Shared {
                 d: Mutex::new(Data {
+                    pending: vec![],
                     settings,
                     session: saved.session,
                     dossiers,
@@ -2026,5 +2145,5 @@ fn main() {
             Ok(())
         })
         .run(tauri::generate_context!())
-        .expect("Cap n'a pas pu démarrer");
+        .expect("Cap n'a pas pu démarrer"); // i18n-ok : message de plantage, jamais affiché
 }

@@ -5,7 +5,7 @@ const I = window.ICON;
 
 let L = {};
 const t = (k) => L[k] ?? "";
-invoke("get_state").then((S) => { L = S.i18n || {}; $("x").title = t("nudge.close"); }).catch(() => {});
+invoke("get_state").then((S) => { L = S.i18n || {}; $("x").title = t("nudge.closeTip"); }).catch(() => {});
 let cur = null, ttlLeft = 0, cdLeft = 0, timer = null, hovering = false, closing = false;
 
 function chime() {

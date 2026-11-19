@@ -264,7 +264,17 @@ function renderRappels() {
   const warn = S.missed > 0;
   $("missedTag").classList.toggle("hidden", !warn);
   $("missedTag").innerHTML = on ? `${I.bellOff}${t("rem.missedN", { n: S.missed })}` : `${I.bellOff}${t("rem.paused")}`;
-  $("missedTag").dataset.tip = on ? t("rem.missedTip") : t("rem.pausedTip");
+  $("missedTag").dataset.tip = on ? t("rem.missedTip", { n: Math.max(1, (S.settings.misses_to_pause || 2) - S.missed) }) : t("rem.pausedTip");
+  setHTML($("missStep"), `<button data-ms="-1">${I.minus}</button><span>${t("rem.missesN", { n: S.settings.misses_to_pause || 2 })}</span><button data-ms="1">${I.plus}</button>`);
+  // Rappels en attente : réclamables jusqu'au prochain du même type
+  const pend = (S.pending || []).slice().sort((a, b) => b.at - a.at);
+  $("pendHead").classList.toggle("hidden", !pend.length);
+  setHTML($("pendList"), pend.map((p) => `
+    <div class="rem pend"><span class="ri">${I[p.icon] || I.bell}</span>
+      <div class="rt"><span class="rl" style="cursor:default">${esc(p.label)}</span><span class="rn">${I.clock}${esc(agoTxt(S.now - p.at))}</span></div>
+      <button class="icon-btn del" data-pdrop="${esc(p.rid)}" title="${esc(t("rem.lose"))}">${I.x}</button>
+      <button class="icon-btn solid sm2" data-pclaim="${esc(p.rid)}" title="${esc(t("rem.claim"))}">${I.check}</button>
+    </div>`).join(""));
 
 
   const once = S.settings.reminders.filter((r) => r.once_at).sort((a, b) => a.once_at - b.once_at);
@@ -285,6 +295,8 @@ function renderRappels() {
       <button class="icon-btn del" data-rdel="${r.id}" title="${t("rem.delete")}">${I.trash}</button>
     </div>`).join(""));
 }
+
+const agoTxt = (ms) => (ms < 60000 ? t("rem.now") : t("rem.ago", { d: soon(ms) }));
 
 // "45 s", "12 min", "1 h 05"
 const soon = (ms) => {
@@ -668,6 +680,16 @@ function bind() {
   };
   $("onceAdd").onsubmit = (e) => { e.preventDefault(); addOnce(); };
   bindWhen($("onceWhen"), addOnce);
+  $("missStep").onclick = (e) => {
+    const b = e.target.closest("[data-ms]"); if (!b) return;
+    saveSettings((c) => (c.misses_to_pause = Math.max(1, Math.min(20, (c.misses_to_pause || 2) + +b.dataset.ms))));
+  };
+  $("pendList").onclick = (e) => {
+    const c = e.target.closest("[data-pclaim]");
+    if (c) return invoke("pending_claim", { rid: c.dataset.pclaim });
+    const d = e.target.closest("[data-pdrop]");
+    if (d && armed(d)) invoke("pending_drop", { rid: d.dataset.pdrop });
+  };
   $("addRem").onsubmit = (e) => {
     e.preventDefault();
     const v = $("remInput").value.trim();
