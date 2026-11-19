@@ -440,3 +440,8 @@ main { flex: 1; position: relative; min-height: 0; }
 .qpanel { flex-direction: row; align-items: center; }
 select.sel { height: 30px; border-radius: 9px; border: 1px solid var(--line); background: #1d2028; color: var(--text); padding: 0 8px; font: inherit; font-size: 12.5px; outline: 0; cursor: pointer; }
 select.sel:focus { border-color: color-mix(in srgb, var(--accent) 55%, transparent); }
+
+/* fondu sous le bouton d'actions rapides */
+main::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 64px; pointer-events: none; background: linear-gradient(to bottom, transparent, var(--bg) 85%); z-index: 2; }
+.add-row.small .icon-btn.solid { width: 38px; height: 38px; }
+.add-row.small input { height: 38px; font-size: 13.5px; }
