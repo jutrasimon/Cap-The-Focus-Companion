@@ -5,6 +5,7 @@ let host = "";
 try { host = new URL(target).hostname.replace(/^www\./, ""); } catch {}
 
 let state = null;
+const tx = (k, v = {}) => { let s = (state && state.t && state.t[k]) || globalThis.CAP_FR[k] || k; for (const [a, b] of Object.entries(v)) s = s.split(`{${a}}`).join(b); return s; };
 const fmt = (ms) => { const s = Math.max(0, Math.ceil(ms / 1000)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`; };
 const siteOf = () => state && (state.sites || []).find((d) => host === d || host.endsWith("." + d));
 
@@ -17,45 +18,46 @@ function render() {
   const elapsed = state ? Date.now() - state.at : 0;
 
   if (reason === "focus") {
-    $("kicker").textContent = state.paused ? "Session en pause" : "Session de focus en cours";
-    $("h1").textContent = "Pas maintenant.";
-    $("site").textContent = `${host} attendra un peu.`;
+    $("kicker").textContent = state.paused ? tx("ext.focusPaused") : tx("ext.focusNow");
+    $("h1").textContent = tx("ext.notNow");
+    $("site").textContent = tx("ext.wait", { h: host });
     $("goalBox").classList.toggle("hidden", !state.goal);
     $("goal").textContent = state.goal;
-    $("time").textContent = state.paused ? "en pause" : fmt(state.left - elapsed);
+    $("goalLbl").textContent = tx("ext.goal");
+    $("time").textContent = state.paused ? tx("ext.paused") : fmt(state.left - elapsed);
     $("gaugeBox").classList.add("hidden");
     $("go").classList.add("hidden");
-    $("back").textContent = "Retour au travail";
-    $("foot").textContent = "Le blocage se lève tout seul à la fin de la session. Pour libérer les sites avant, utilise Cap.";
-    document.title = "Pas maintenant · Cap";
+    $("back").textContent = tx("ext.backToWork");
+    $("foot").textContent = tx("ext.focusFoot");
+    document.title = tx("ext.titleBlocked");
   } else if (reason === "gauge") {
     const g = (state.gauges || {})[site] || {};
     const refill = Math.max(0, (g.refill_in || 0) * 1000 - elapsed);
-    $("kicker").textContent = "Jauge à sec";
-    $("h1").textContent = "Assez pour l'instant.";
-    $("site").textContent = `Ta jauge ${site} est vide.`;
+    $("kicker").textContent = tx("ext.gaugeEmpty");
+    $("h1").textContent = tx("ext.enough");
+    $("site").textContent = tx("ext.gaugeOf", { s: site });
     $("goalBox").classList.add("hidden");
     $("gaugeBox").classList.remove("hidden");
     const level = Math.min(g.max || 1, (g.level || 0) + (elapsed / 1000) * ((g.cfg && g.cfg.refill_per_hour) || 15) / 60);
     $("gaugeFill").style.width = `${Math.max(1, (100 * level) / (g.max || 1))}%`;
     $("time").textContent = refill > 0 ? fmt(refill) : "";
-    $("timeLabel").textContent = refill > 0 ? "avant 1 minute de recharge" : "";
+    $("timeLabel").textContent = refill > 0 ? tx("ext.refillLabel") : "";
     $("go").classList.add("hidden");
-    $("back").textContent = "Fermer l'onglet";
-    $("foot").textContent = "La jauge se recharge quand tu n'es pas sur le site. Ses réglages sont dans Cap.";
-    document.title = "Jauge vide · Cap";
+    $("back").textContent = tx("ext.closeTab");
+    $("foot").textContent = tx("ext.gaugeFoot");
+    document.title = tx("ext.titleGauge");
   } else {
-    $("kicker").textContent = "Accès rétabli";
-    $("h1").textContent = "C'est libéré.";
+    $("kicker").textContent = tx("ext.access");
+    $("h1").textContent = tx("ext.freed");
     $("site").textContent = "";
     $("goalBox").classList.add("hidden");
     $("gaugeBox").classList.add("hidden");
     $("time").textContent = "";
     $("timeLabel").textContent = "";
-    $("back").textContent = "Fermer l'onglet";
+    $("back").textContent = tx("ext.closeTab");
     $("foot").textContent = "";
-    if (target) { $("go").href = target; $("go").textContent = host ? `Continuer vers ${host}` : "Continuer"; $("go").classList.remove("hidden"); }
-    document.title = "Libéré · Cap";
+    if (target) { $("go").href = target; $("go").textContent = host ? tx("ext.continueTo", { h: host }) : tx("ext.continue"); $("go").classList.remove("hidden"); }
+    document.title = tx("ext.titleFree");
   }
 }
 

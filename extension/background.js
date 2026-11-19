@@ -96,17 +96,18 @@ function badge(s) {
   try {
     // Pendant un focus : minutes restantes. Sinon : minutes de jauge du site ouvert.
     let text = "", color = "#ff7a50", title = "Cap";
-    if (s.offline) title = "Cap n'est pas ouvert";
+    const tx = (k, v = {}) => { let r = (s.t && s.t[k]) || k; for (const [a, b] of Object.entries(v)) r = r.split(`{${a}}`).join(b); return r; };
+    if (s.offline) title = "Cap";
     else if (s.focus) {
       text = s.paused ? "II" : String(Math.max(1, Math.ceil(s.left / 60000)));
-      title = `Cap · focus en cours`;
+      title = tx("ext.badgeFocus");
     } else if (activeHost && s.gauges) {
       const site = Object.keys(s.gauges).find((d) => activeHost === d || activeHost.endsWith("." + d));
       const g = site && s.gauges[site];
       if (g && !g.off && g.cfg && g.cfg.enabled) {
         text = String(Math.floor(g.level / 60));
         color = g.level / g.max < 0.25 ? "#ff5f6d" : "#4cc9a6";
-        title = `Cap · ${site} : ${Math.floor(g.level / 60)} min de jauge`;
+        title = tx("ext.badgeGauge", { s: site, n: Math.floor(g.level / 60) });
       }
     }
     actionApi.setBadgeBackgroundColor({ color });

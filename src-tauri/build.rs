@@ -12,6 +12,7 @@ fn main() {
     println!("cargo:rustc-env=CAP_EXT_VERSION={ver}");
     println!("cargo:rerun-if-changed=../extension/manifest.json");
     println!("cargo:rerun-if-changed=../ui");
+    println!("cargo:rerun-if-changed=../locales");
     println!("cargo:rerun-if-changed=src");
     tauri_build::build()
 }

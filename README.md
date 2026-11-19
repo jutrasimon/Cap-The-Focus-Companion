@@ -19,7 +19,8 @@ Ctrl+Alt+F ouvre ou réduit Cap. Ctrl+Alt+R ajoute un rappel unique. Les deux se
 - **Dossiers** : post-it avec une jauge d'activité qui baisse chaque jour. À zéro, le dossier part au cimetière.
 - **Sites** : une jauge par site qui se vide quand tu y es et se recharge sinon. À sec, le site est bloqué.
 - **Rappels** : récurrents ou uniques, à confirmer. Deux ratés de suite mettent tout en pause.
-- **Stats** : focus, sites, rappels, dossiers.
+- **Stats** : focus, sites, rappels, dossiers, historique.
+- **Langues** : français et anglais intégrés, importe la tienne. Voir [LOCALIZATION.md](LOCALIZATION.md).
 
 ## Développer
 
@@ -30,7 +31,7 @@ npm install
 npm run tauri dev
 ```
 
-`src-tauri/` : cœur Rust (Tauri 2). `ui/` : interface (HTML/CSS/JS sans compilation). `extension/` : extension Chromium (MV3). `firefox/` : manifeste Firefox. L'extension parle à Cap sur `127.0.0.1:47615`.
+`src-tauri/` : cœur Rust (Tauri 2). `ui/` : interface (HTML/CSS/JS sans compilation). `locales/` : textes, une langue par fichier. `extension/` : extension Chromium (MV3). `firefox/` : manifeste Firefox. L'extension parle à Cap sur `127.0.0.1:47615`.
 
 ## Publier une version
 

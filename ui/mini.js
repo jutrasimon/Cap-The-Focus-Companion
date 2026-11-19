@@ -9,7 +9,8 @@ $("go").innerHTML = I.play;
 $("ex").innerHTML = I.expand;
 $("cl").innerHTML = I.close;
 
-let minutes = 25;
+let minutes = 25, L = {};
+const t = (k, v = {}) => { let s = L[k] ?? k; for (const [a, b] of Object.entries(v)) s = s.split(`{${a}}`).join(b); return s; };
 function render(S) {
   const s = S.session;
   minutes = S.settings.minutes || 25;
@@ -24,13 +25,18 @@ function render(S) {
     $("g").textContent = "Cap";
     $("t").textContent = "";
     $("bar").style.width = "0";
-    $("go").title = `Focus ${minutes} min`;
+    $("go").title = t("mini.focus", { n: minutes });
   }
   $("m").classList.toggle("running", !!s && !s.paused);
 }
 
 T.event.listen("tick", (e) => render(e.payload));
-invoke("get_state").then(render);
+invoke("get_state").then((S) => {
+  L = S.i18n || {};
+  $("ex").title = t("mini.open");
+  $("cl").title = t("mini.close");
+  render(S);
+});
 
 $("go").addEventListener("click", (e) => { e.stopPropagation(); invoke("start", { minutes }); });
 $("ex").addEventListener("click", (e) => { e.stopPropagation(); invoke("set_mode", { mode: "full" }); });

@@ -3,6 +3,9 @@ const invoke = (c, a) => T.core.invoke(c, a);
 const $ = (id) => document.getElementById(id);
 const I = window.ICON;
 
+let L = {};
+const t = (k) => L[k] ?? "";
+invoke("get_state").then((S) => { L = S.i18n || {}; $("x").title = t("nudge.close"); }).catch(() => {});
 let cur = null, ttlLeft = 0, cdLeft = 0, timer = null, hovering = false, closing = false;
 
 function chime() {
@@ -47,12 +50,13 @@ function badge() {
 
 function present(n) {
   if (!n) return;
+  invoke("get_state").then((S) => { L = S.i18n || L; }).catch(() => {});
   cur = n; closing = false;
   document.body.classList.toggle("ok", n.kind === "done" || n.kind === "break_done" || n.icon === "eyes");
   document.body.classList.toggle("done", n.kind === "done");
   $("title").textContent = n.title;
   $("body").textContent = n.body;
-  const tips = { later: "Me le rappeler dans 10 min", done: "C'est fait", start: "Compte 20 secondes, puis c'est fait", again: "Relancer un focus" };
+  const tips = { later: t("nudge.laterTip"), done: t("nudge.doneTip"), start: t("nudge.startTip"), again: t("nudge.againTip") };
   $("acts").innerHTML = n.actions.map(([id, label], i) => `<button data-a="${id}" title="${tips[id] || ""}" class="${i === n.actions.length - 1 ? "main" : ""}">${label}</button>`).join("");
   ttlLeft = n.ttl; cdLeft = 0;
   badge();

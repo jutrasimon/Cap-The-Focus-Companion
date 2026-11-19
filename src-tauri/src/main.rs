@@ -32,6 +32,101 @@ const SNOOZE_MS: u64 = 10 * 60_000;
 const REMINDER_TTL_S: u32 = 120; // sans confirmation après 2 min : rappel raté
 const MISSES_TO_PAUSE: u32 = 2;
 
+// ================================================================ langues
+
+type Dict = HashMap<String, String>;
+
+struct Locales {
+    /// Code -> textes (intégrés, puis fichiers du dossier des langues par-dessus)
+    all: std::collections::BTreeMap<String, Dict>,
+    /// Langue effective
+    lang: String,
+}
+
+static LOC: Mutex<Option<Locales>> = Mutex::new(None);
+const BUILTIN: [(&str, &str); 2] = [("fr", include_str!("../../locales/fr.json")), ("en", include_str!("../../locales/en.json"))];
+
+fn parse_dict(txt: &str) -> Option<Dict> {
+    let v: serde_json::Map<String, Value> = serde_json::from_str(txt).ok()?;
+    Some(v.into_iter().filter_map(|(k, v)| v.as_str().map(|s| (k, s.to_string()))).collect())
+}
+
+/// Charge les langues intégrées et celles du dossier `locales` (créé avec des modèles au besoin).
+fn load_locales(dir: &std::path::Path, lang: &str) {
+    let _ = std::fs::create_dir_all(dir);
+    let mut all = std::collections::BTreeMap::new();
+    for (code, txt) in BUILTIN {
+        let f = dir.join(format!("{code}.json"));
+        if !f.exists() {
+            let _ = std::fs::write(&f, txt);
+        }
+        if let Some(d) = parse_dict(txt) {
+            all.insert(code.to_string(), d);
+        }
+    }
+    if let Ok(rd) = std::fs::read_dir(dir) {
+        for e in rd.flatten() {
+            let p = e.path();
+            if p.extension().map_or(true, |x| x != "json") {
+                continue;
+            }
+            if let Some(d) = std::fs::read_to_string(&p).ok().and_then(|t| parse_dict(&t)) {
+                if let Some(code) = d.get("_meta.code").cloned() {
+                    all.entry(code).or_insert_with(Dict::new).extend(d);
+                }
+            }
+        }
+    }
+    *LOC.lock().unwrap() = Some(Locales { all, lang: lang.to_string() });
+}
+
+/// Textes de la langue effective, complétés par l'anglais puis le français.
+fn dict() -> Dict {
+    let g = LOC.lock().unwrap();
+    let Some(l) = g.as_ref() else { return Dict::new() };
+    let mut d = l.all.get("fr").cloned().unwrap_or_default();
+    if let Some(en) = l.all.get("en") {
+        d.extend(en.clone());
+    }
+    if let Some(cur) = l.all.get(&l.lang) {
+        d.extend(cur.clone());
+    }
+    d
+}
+
+fn tr(key: &str) -> String {
+    let g = LOC.lock().unwrap();
+    if let Some(l) = g.as_ref() {
+        for code in [l.lang.as_str(), "en", "fr"] {
+            if let Some(v) = l.all.get(code).and_then(|d| d.get(key)) {
+                return v.clone();
+            }
+        }
+    }
+    key.to_string()
+}
+
+fn trn(key: &str, n: impl std::fmt::Display) -> String {
+    tr(key).replace("{n}", &n.to_string())
+}
+
+fn langs() -> Value {
+    let g = LOC.lock().unwrap();
+    let Some(l) = g.as_ref() else { return json!([]) };
+    Value::Array(
+        l.all
+            .iter()
+            .map(|(c, d)| json!({ "code": c, "name": d.get("_meta.name").cloned().unwrap_or_else(|| c.clone()) }))
+            .collect(),
+    )
+}
+
+fn set_effective_lang(code: &str) {
+    if let Some(l) = LOC.lock().unwrap().as_mut() {
+        l.lang = if l.all.contains_key(code) { code.to_string() } else { "en".to_string() };
+    }
+}
+
 /// Version disponible sur GitHub, si plus récente
 static UPDATE: Mutex<Option<String>> = Mutex::new(None);
 
@@ -87,6 +182,8 @@ struct Settings {
     /// Raccourcis globaux : ouvrir/réduire et rappel unique
     sc_open: String,
     sc_quick: String,
+    /// "auto" ou un code de langue
+    lang: String,
 }
 
 impl Default for Settings {
@@ -111,6 +208,7 @@ impl Default for Settings {
             mini_pos: None,
             sc_open: "ctrl+alt+f".into(),
             sc_quick: "ctrl+alt+r".into(),
+            lang: "auto".into(),
         }
     }
 }
@@ -263,6 +361,7 @@ struct TrayItems {
     tray: TrayIcon<Wry>,
     quick: MenuItem<Wry>,
     stop: MenuItem<Wry>,
+    labels: Vec<(MenuItem<Wry>, &'static str)>,
     last: Mutex<String>,
 }
 
@@ -456,6 +555,7 @@ impl Data {
             "reasons": reasons,
             "limited": self.settings.active_sites(),
             "gauges": self.gauges_json(now),
+            "t": dict().into_iter().filter(|(k, _)| k.starts_with("ext.")).map(|(k, v)| (k, Value::String(v))).collect::<serde_json::Map<String, Value>>(),
         })
     }
 
@@ -600,15 +700,15 @@ impl TrayInfo {
         let (tip, icon) = match &d.session {
             Some(s) => {
                 let g: String = s.goal.chars().take(70).collect();
-                let state = if s.paused() { " (en pause)" } else { "" };
+                let state = if s.paused() { tr("tray.paused") } else { String::new() };
                 (format!("Cap · {}{}{}", fmt_left(s.left(now)), state, if g.is_empty() { String::new() } else { format!("\n{g}") }), if s.paused() { 3 } else { 1 })
             }
             None => ("Cap".into(), 0),
         };
         let quick = match &d.session {
-            None => format!("Focus {} min", d.settings.minutes),
-            Some(s) if s.paused() => "Reprendre".into(),
-            Some(_) => "Pause".into(),
+            None => trn("tray.focus", d.settings.minutes),
+            Some(s) if s.paused() => tr("tray.resume"),
+            Some(_) => tr("tray.pause"),
         };
         TrayInfo { tip, quick, has_session: d.session.is_some(), icon }
     }
@@ -651,18 +751,20 @@ fn commit(app: &AppHandle, sh: &Shared, d: &mut Data) {
 // ================================================================ rappels et focus
 
 fn reminder_nudge(r: &Reminder, once: bool) -> Nudge {
+    // Rappels par défaut : texte prêt à l'emploi ; sinon, le nom choisi
+    let builtin = !once && ["eyes", "water", "stretch", "move"].contains(&r.id.as_str()) && is_default_label(&r.id, &r.label);
     let (title, body, countdown) = match r.icon.as_str() {
-        "eyes" if !once => ("Regarde au loin".to_string(), "6 m · 20 s".to_string(), 20),
-        "water" if !once => ("Une gorgée d'eau".into(), String::new(), 0),
-        "stretch" if !once => ("Étire-toi".into(), String::new(), 0),
-        "move" if !once => ("Lève-toi".into(), String::new(), 0),
+        "eyes" if builtin => (tr("nudge.eyes"), tr("nudge.eyesBody"), 20),
+        "water" if builtin => (tr("nudge.water"), String::new(), 0),
+        "stretch" if builtin => (tr("nudge.stretch"), String::new(), 0),
+        "move" if builtin => (tr("nudge.move"), String::new(), 0),
         _ => (r.label.clone(), String::new(), 0),
     };
-    let mut actions: Vec<[String; 2]> = vec![["later".into(), "+10 min".into()]]; // reporter de 10 min
+    let mut actions: Vec<[String; 2]> = vec![["later".into(), tr("nudge.later")]]; // reporter de 10 min
     if countdown > 0 {
-        actions.push(["start".into(), "20 s".into()]);
+        actions.push(["start".into(), tr("nudge.20s")]);
     }
-    actions.push(["done".into(), "Fait".into()]);
+    actions.push(["done".into(), tr("nudge.done")]);
     Nudge {
         kind: "reminder".into(),
         rid: r.id.clone(),
@@ -677,6 +779,13 @@ fn reminder_nudge(r: &Reminder, once: bool) -> Nudge {
         shown_at: 0,
         once: if once { Some(r.clone()) } else { None },
     }
+}
+
+/// Le nom du rappel est-il encore le nom par défaut (dans n'importe quelle langue) ?
+fn is_default_label(id: &str, label: &str) -> bool {
+    let key = format!("rem.{id}");
+    let g = LOC.lock().unwrap();
+    g.as_ref().map_or(false, |l| l.all.values().any(|d| d.get(&key).map_or(false, |v| v == label)))
 }
 
 fn present_nudge(app: &AppHandle, n: &Nudge) {
@@ -734,10 +843,10 @@ fn ticker(app: AppHandle, sh: S) {
                 let n = Nudge {
                     kind: "done".into(),
                     rid: String::new(),
-                    title: if s.goal.is_empty() { "Focus".into() } else { s.goal.clone() },
-                    body: format!("Session terminée · {mins} min"),
+                    title: if s.goal.is_empty() { tr("nudge.focus") } else { s.goal.clone() },
+                    body: trn("nudge.ended", mins),
                     icon: "done".into(),
-                    actions: vec![["again".into(), format!("Encore {} min", d.settings.minutes)]],
+                    actions: vec![["again".into(), trn("nudge.again", d.settings.minutes)]],
                     countdown: 0,
                     chime: d.settings.sound,
                     ttl: 60,
@@ -1039,6 +1148,8 @@ fn get_state(app: AppHandle, st: State<S>) -> Value {
     let mut v = d.snapshot();
     use tauri_plugin_autostart::ManagerExt;
     v["autostart"] = json!(app.autolaunch().is_enabled().unwrap_or(false));
+    v["i18n"] = json!(dict());
+    v["langs"] = langs();
     let now = now_ms();
     v["about"] = json!({
         "version": env!("CARGO_PKG_VERSION"),
@@ -1069,7 +1180,7 @@ fn register_sc(app: &AppHandle, kind: &str, accel: &str) -> bool {
 fn set_shortcut(app: AppHandle, st: State<S>, kind: String, accel: String) -> Result<(), String> {
     use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut};
     let accel = accel.to_lowercase();
-    accel.parse::<Shortcut>().map_err(|_| "Combinaison invalide".to_string())?;
+    accel.parse::<Shortcut>().map_err(|_| tr("set.scInvalid"))?;
     let old = {
         let d = st.d.lock().unwrap();
         if kind == "quick" { d.settings.sc_quick.clone() } else { d.settings.sc_open.clone() }
@@ -1077,7 +1188,7 @@ fn set_shortcut(app: AppHandle, st: State<S>, kind: String, accel: String) -> Re
     let _ = app.global_shortcut().unregister(old.as_str());
     if !register_sc(&app, &kind, &accel) {
         register_sc(&app, &kind, &old);
-        return Err("Déjà utilisée par une autre app".into());
+        return Err(tr("set.scBusy"));
     }
     let mut d = st.d.lock().unwrap();
     if kind == "quick" {
@@ -1087,6 +1198,82 @@ fn set_shortcut(app: AppHandle, st: State<S>, kind: String, accel: String) -> Re
     }
     commit(&app, &st, &mut d);
     Ok(())
+}
+
+// ---------------------------------------------------------------- langues (commandes)
+
+/// Applique la langue choisie (ou celle du système quand "auto") partout : menus, rappels par défaut, extension.
+fn apply_lang(app: &AppHandle, d: &mut Data, system: &str) {
+    let want = if d.settings.lang == "auto" { system.split('-').next().unwrap_or("en").to_lowercase() } else { d.settings.lang.clone() };
+    set_effective_lang(&want);
+    // Rappels par défaut pas encore renommés : on suit la langue
+    for r in d.settings.reminders.iter_mut() {
+        if ["eyes", "water", "stretch", "move"].contains(&r.id.as_str()) && is_default_label(&r.id, &r.label) {
+            r.label = tr(&format!("rem.{}", r.id));
+        }
+    }
+    if let Some(t) = app.try_state::<TrayItems>() {
+        for (item, key) in t.labels.iter() {
+            let _ = item.set_text(tr(key));
+        }
+        *t.last.lock().unwrap() = String::new();
+    }
+}
+
+static SYS_LANG: Mutex<String> = Mutex::new(String::new());
+
+/// L'interface donne la langue du système (navigator.language) au démarrage.
+#[tauri::command]
+fn set_system_lang(app: AppHandle, st: State<S>, lang: String) {
+    *SYS_LANG.lock().unwrap() = lang.clone();
+    let mut d = st.d.lock().unwrap();
+    apply_lang(&app, &mut d, &lang);
+    commit(&app, &st, &mut d);
+}
+
+#[tauri::command]
+fn set_lang(app: AppHandle, st: State<S>, lang: String) -> Value {
+    let sys = SYS_LANG.lock().unwrap().clone();
+    {
+        let mut d = st.d.lock().unwrap();
+        d.settings.lang = lang;
+        apply_lang(&app, &mut d, &sys);
+        commit(&app, &st, &mut d);
+    }
+    json!({ "i18n": dict(), "langs": langs() })
+}
+
+fn locales_dir(d: &Data) -> PathBuf {
+    d.path.parent().map(|p| p.join("locales")).unwrap_or_else(|| PathBuf::from("locales"))
+}
+
+/// Importe un fichier de langue (contenu JSON). Il doit avoir `_meta.code` et `_meta.name`.
+#[tauri::command]
+fn import_locale(app: AppHandle, st: State<S>, content: String) -> Result<String, String> {
+    let dict = parse_dict(&content).ok_or_else(|| tr("set.langBad"))?;
+    let code = dict.get("_meta.code").cloned().unwrap_or_default().to_lowercase();
+    let name = dict.get("_meta.name").cloned().unwrap_or_default();
+    let ok = !code.is_empty() && code.len() <= 12 && code.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') && !name.is_empty();
+    if !ok {
+        return Err(tr("set.langBad"));
+    }
+    let mut d = st.d.lock().unwrap();
+    let dir = locales_dir(&d);
+    let _ = std::fs::create_dir_all(&dir);
+    std::fs::write(dir.join(format!("{code}.json")), &content).map_err(|e| e.to_string())?;
+    load_locales(&dir, &code);
+    d.settings.lang = code;
+    let sys = SYS_LANG.lock().unwrap().clone();
+    apply_lang(&app, &mut d, &sys);
+    commit(&app, &st, &mut d);
+    Ok(name)
+}
+
+#[tauri::command]
+fn open_locales_folder(st: State<S>) {
+    let _dir = locales_dir(&st.d.lock().unwrap());
+    #[cfg(windows)]
+    let _ = std::process::Command::new("explorer").arg(_dir).spawn();
 }
 
 // ---------------------------------------------------------------- performance
@@ -1174,7 +1361,7 @@ async fn check_update(app: AppHandle) -> Option<String> {
 async fn install_update(app: AppHandle) -> Result<(), String> {
     use tauri_plugin_updater::UpdaterExt;
     let update = app.updater().map_err(|e| e.to_string())?.check().await.map_err(|e| e.to_string())?;
-    let Some(update) = update else { return Err("Déjà à jour".into()) };
+    let Some(update) = update else { return Err(tr("err.upToDate")) };
     update.download_and_install(|_, _| {}, || {}).await.map_err(|e| e.to_string())?;
     app.restart();
 }
@@ -1288,6 +1475,7 @@ fn save_settings(app: AppHandle, st: State<S>, settings: Settings) {
     s.main_pos = d.settings.main_pos;
     s.sc_open = d.settings.sc_open.clone();
     s.sc_quick = d.settings.sc_quick.clone();
+    s.lang = d.settings.lang.clone();
     s.mini_pos = d.settings.mini_pos;
     d.settings = s;
     commit(&app, &st, &mut d);
@@ -1614,6 +1802,10 @@ fn main() {
             install_update,
             set_shortcut,
             get_perf,
+            set_system_lang,
+            set_lang,
+            import_locale,
+            open_locales_folder,
             quit
         ])
         .setup(move |app| {
@@ -1625,6 +1817,7 @@ fn main() {
             let saved: Saved = std::fs::read_to_string(&path).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default();
             let stats: Stats = std::fs::read_to_string(&stats_path).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default();
             let mut settings = saved.settings;
+            load_locales(&dir.join("locales"), if settings.lang == "auto" { "fr" } else { &settings.lang });
             if settings.mode.is_empty() {
                 settings.mode = "full".into();
             }
@@ -1699,12 +1892,12 @@ fn main() {
             }
 
             // Zone de notification
-            let open = MenuItem::with_id(app, "open", "Ouvrir", true, Some("Ctrl+Alt+F"))?;
-            let mini = MenuItem::with_id(app, "mini", "Réduire", true, None::<&str>)?;
-            let quickrem = MenuItem::with_id(app, "quickrem", "Rappel unique", true, Some("Ctrl+Alt+R"))?;
+            let open = MenuItem::with_id(app, "open", tr("tray.open"), true, None::<&str>)?;
+            let mini = MenuItem::with_id(app, "mini", tr("tray.mini"), true, None::<&str>)?;
+            let quickrem = MenuItem::with_id(app, "quickrem", tr("tray.quickrem"), true, None::<&str>)?;
             let quick = MenuItem::with_id(app, "quick", "Focus", true, None::<&str>)?;
-            let stop_i = MenuItem::with_id(app, "stop", "Terminer le focus", false, None::<&str>)?;
-            let quit_i = MenuItem::with_id(app, "quit", "Quitter", true, None::<&str>)?;
+            let stop_i = MenuItem::with_id(app, "stop", tr("tray.stop"), false, None::<&str>)?;
+            let quit_i = MenuItem::with_id(app, "quit", tr("tray.quit"), true, None::<&str>)?;
             let menu = Menu::with_items(
                 app,
                 &[&open, &mini, &PredefinedMenuItem::separator(app)?, &quickrem, &quick, &stop_i, &PredefinedMenuItem::separator(app)?, &quit_i],
@@ -1767,7 +1960,8 @@ fn main() {
                     }
                 })
                 .build(app)?;
-            app.manage(TrayItems { tray, quick, stop: stop_i, last: Mutex::new(String::new()) });
+            let labels = vec![(open.clone(), "tray.open"), (mini.clone(), "tray.mini"), (quickrem.clone(), "tray.quickrem"), (stop_i.clone(), "tray.stop"), (quit_i.clone(), "tray.quit")];
+            app.manage(TrayItems { tray, quick, stop: stop_i, labels, last: Mutex::new(String::new()) });
 
             // Retenir où l'utilisateur place chaque fenêtre
             for (label, idx) in [("main", 0usize), ("mini", 1usize)] {

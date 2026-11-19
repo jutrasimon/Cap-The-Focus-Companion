@@ -408,12 +408,12 @@ main { flex: 1; position: relative; min-height: 0; }
 .focus-note:hover { background: var(--panel); }
 .focus-note:focus { background: var(--panel); border-color: color-mix(in srgb, var(--accent) 45%, transparent); }
 .hist { display: flex; flex-direction: column; border-radius: 12px; overflow: hidden; border: 1px solid var(--line); }
-.hi { display: grid; grid-template-columns: 18px 92px 1fr auto; align-items: center; gap: 8px; padding: 7px 10px; background: var(--panel); font-size: 12px; border-top: 1px solid var(--line); }
+.hi { display: grid; grid-template-columns: 18px auto 1fr auto; align-items: center; gap: 8px; padding: 7px 10px; background: var(--panel); font-size: 12px; border-top: 1px solid var(--line); }
 .hi:first-child { border-top: 0; }
 .hs { color: var(--faint); display: grid; place-items: center; }
 .hs.ok { color: var(--ok); }
 .hs svg { width: 13px; height: 13px; }
-.hd { color: var(--muted); font-variant-numeric: tabular-nums; }
+.hd { color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .hi b { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .hi b.none { color: var(--faint); }
 .hm { color: var(--muted); font-variant-numeric: tabular-nums; }
@@ -427,3 +427,16 @@ main { flex: 1; position: relative; min-height: 0; }
 .row.sc.listening kbd { color: var(--accent); animation: breathe 1.2s ease-in-out infinite; }
 .scs { width: 22px; display: grid; place-items: center; }
 .scs svg { width: 14px; height: 14px; }
+
+/* rappel unique : une seule ligne quoi + quand */
+.once-row, .qpanel { display: flex; gap: 6px; flex: none; }
+.once-row input, .qpanel input { height: 38px; border-radius: 12px; border: 1px solid var(--line); background: var(--panel); padding: 0 12px; outline: 0; font-size: 13.5px; user-select: text; min-width: 0; }
+.once-row input:focus, .qpanel input:focus { border-color: color-mix(in srgb, var(--accent) 55%, transparent); }
+.once-row input::placeholder, .qpanel input::placeholder { color: var(--faint); }
+.once-row input:first-child, .qpanel input:first-child { flex: 1; }
+.when-in { width: 76px; flex: none; text-align: center; font-variant-numeric: tabular-nums; }
+.when-in.bad { border-color: color-mix(in srgb, var(--bad) 70%, transparent) !important; }
+.once-row .icon-btn.solid, .qpanel .icon-btn.solid { width: 38px; height: 38px; }
+.qpanel { flex-direction: row; align-items: center; }
+select.sel { height: 30px; border-radius: 9px; border: 1px solid var(--line); background: #1d2028; color: var(--text); padding: 0 8px; font: inherit; font-size: 12.5px; outline: 0; cursor: pointer; }
+select.sel:focus { border-color: color-mix(in srgb, var(--accent) 55%, transparent); }

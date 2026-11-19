@@ -11,6 +11,16 @@ const C = 2 * Math.PI * 98;
 const DAY = 86400000;
 
 let S = null;
+// Textes de la langue courante (fichiers locales/*.json)
+let L = {};
+const t = (k, v = {}) => { let s = L[k] ?? k; for (const [a, b] of Object.entries(v)) s = s.split(`{${a}}`).join(b); return s; };
+const LOC = () => L["_meta.locale"] || undefined;
+function applyI18n(root = document) {
+  root.querySelectorAll("[data-t]").forEach((el) => (el.textContent = t(el.dataset.t)));
+  root.querySelectorAll("[data-t-ph]").forEach((el) => (el.placeholder = t(el.dataset.tPh)));
+  root.querySelectorAll("[data-t-tip]").forEach((el) => { el.dataset.tip = t(el.dataset.tTip); el.removeAttribute("title"); });
+  document.documentElement.lang = L["_meta.code"] || "fr";
+}
 let tab = "focus", lastTab = "focus";
 let minutes = 25, primed = false;
 let archOpen = false, archMode = "done", archExpanded = null;
@@ -27,12 +37,12 @@ const fmt = (ms) => {
 };
 const dur = (min) => {
   min = Math.round(min);
-  if (min < 60) return `${min} min`;
+  if (min < 60) return t("fmt.min", { n: min });
   const h = Math.floor(min / 60), m = min % 60;
-  return m ? `${h} h ${String(m).padStart(2, "0")}` : `${h} h`;
+  return m ? t("fmt.hm", { h, m: String(m).padStart(2, "0") }) : t("fmt.h", { h });
 };
-const clock = (t) => new Date(t).toLocaleTimeString("fr-CA", { hour: "2-digit", minute: "2-digit" });
-const dateS = (t) => new Date(t).toLocaleDateString("fr-CA", { day: "numeric", month: "short" });
+const clock = (x) => new Date(x).toLocaleTimeString(LOC(), { hour: "2-digit", minute: "2-digit" });
+const dateS = (x) => new Date(x).toLocaleDateString(LOC(), { day: "numeric", month: "short" });
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 const short = (d) => d.replace(/\.(com|ca|net|org|tv|io|co)$/, "");
 const activeSites = () => S.settings.sites.filter((x) => !S.settings.sites_off.includes(x));
@@ -64,30 +74,31 @@ function restoreArmed() {
 }
 
 function toast(text) {
-  const t = document.createElement("div");
-  t.className = "toast";
-  t.innerHTML = I.check;
-  t.appendChild(document.createTextNode(text));
-  $("card").appendChild(t);
-  setTimeout(() => t.remove(), 1800);
+  const el = document.createElement("div");
+  el.className = "toast";
+  el.innerHTML = I.check;
+  el.appendChild(document.createTextNode(text));
+  $("card").appendChild(el);
+  setTimeout(() => el.remove(), 1800);
 }
 
 // ------------------------------------------------------------ navigation
-function showTab(t) {
-  if (t !== "settings" && t !== "perf") lastTab = t;
-  tab = t;
+function showTab(name) {
+  const t_ = name;
+  if (t_ !== "settings" && t_ !== "perf") lastTab = t_;
+  tab = t_;
   document.querySelectorAll(".view").forEach((v) => {
-    const on = v.dataset.view === t;
+    const on = v.dataset.view === t_;
     v.classList.toggle("hidden", !on);
     if (on) { v.classList.remove("enter"); void v.offsetWidth; v.classList.add("enter"); }
   });
-  document.querySelectorAll("#tabs button").forEach((b) => b.classList.toggle("sel", b.dataset.tab === t));
-  $("gearBtn").classList.toggle("on", t === "settings");
-  $("perfBtn").classList.toggle("on", t === "perf");
+  document.querySelectorAll("#tabs button").forEach((b) => b.classList.toggle("sel", b.dataset.tab === t_));
+  $("gearBtn").classList.toggle("on", t_ === "settings");
+  $("perfBtn").classList.toggle("on", t_ === "perf");
   clearInterval(perfTimer);
-  if (t === "perf") { pollPerf(); perfTimer = setInterval(pollPerf, 1000); }
-  if (t === "stats") loadStats();
-  if (t === "settings") refresh();
+  if (t_ === "perf") { pollPerf(); perfTimer = setInterval(pollPerf, 1000); }
+  if (t_ === "stats") loadStats();
+  if (t_ === "settings") refresh();
   render();
 }
 
@@ -154,23 +165,23 @@ function postit(x) {
       <span class="ghost">${I.skull}</span>
       <div class="pt">${esc(x.title)}</div>
       <div class="pn">${esc(x.notes)}</div>
-      <div class="pf"><button class="bury" data-bury="${x.id}" title="Envoyer au cimetière">${I.skull}<span>Archiver</span></button></div>
+      <div class="pf"><button class="bury" data-bury="${x.id}" title="${t("dos.bury")}">${I.skull}<span>${t("dos.buryBtn")}</span></button></div>
     </div>`;
   }
   const menu = openMenu === x.id ? `
       <div class="pmenu">
-        <div class="stepper"><button data-decay="${x.id}" data-d="-1" title="Déclin plus lent">${I.minus}</button><span title="Déclin par jour">${x.decay_eff}%/j</span><button data-decay="${x.id}" data-d="1" title="Déclin plus rapide">${I.plus}</button></div>
-        <button class="mini-btn" data-color="${x.id}" title="Couleur">${I.palette}</button>
-        <button class="mini-btn del" data-del="${x.id}" title="Supprimer">${I.trash}</button>
+        <div class="stepper"><button data-decay="${x.id}" data-d="-1" title="${t("dos.decaySlower")}">${I.minus}</button><span title="${t("dos.decayPerDay")}">${t("fmt.perDay", { n: x.decay_eff })}</span><button data-decay="${x.id}" data-d="1" title="${t("dos.decayFaster")}">${I.plus}</button></div>
+        <button class="mini-btn" data-color="${x.id}" title="${t("dos.color")}">${I.palette}</button>
+        <button class="mini-btn del" data-del="${x.id}" title="${t("dos.delete")}">${I.trash}</button>
       </div>` : "";
   const days = x.ms_left < 9e15 ? Math.ceil(x.ms_left / DAY) : "∞";
   return `<div class="postit" style="${style}" data-id="${x.id}">
       <div class="pt" contenteditable="plaintext-only" data-f="title" spellcheck="false">${esc(x.title)}</div>
       <div class="pn" contenteditable="plaintext-only" data-f="notes" spellcheck="false">${esc(x.notes)}</div>
       <div class="pf">
-        <button class="actif ${lvl < 25 ? "low" : ""}" data-act="${x.id}" title="Actif · ${days} j avant de perdre ce dossier"><span class="af" style="width:${lvl}%"></span>${I.flame}<span>${lvl}%</span></button>
-        <button class="mini-btn" data-done="${x.id}" title="Compléter">${I.check}</button>
-        <button class="mini-btn" data-menu="${x.id}" title="Options">${I.more}</button>
+        <button class="actif ${lvl < 25 ? "low" : ""}" data-act="${x.id}" title="${t("dos.activeTip", { n: days })}"><span class="af" style="width:${lvl}%"></span>${I.flame}<span>${lvl}%</span></button>
+        <button class="mini-btn" data-done="${x.id}" title="${t("dos.complete")}">${I.check}</button>
+        <button class="mini-btn" data-menu="${x.id}" title="${t("dos.options")}">${I.more}</button>
       </div>${menu}
     </div>`;
 }
@@ -180,7 +191,8 @@ function renderDossiers() {
   $("archives").classList.toggle("hidden", !archOpen);
   $("archBtn").classList.toggle("on", archOpen);
   $("archBtn").innerHTML = archOpen ? I.folder : I.archive;
-  $("archBtn").title = archOpen ? "Dossiers en cours" : "Archives";
+  $("archBtn").dataset.tip = archOpen ? t("dos.current") : t("dos.archives");
+  $("archBtn").removeAttribute("title");
   if (!archOpen) {
     if (editingIn($("board"))) return;
     const live = S.dossiers.filter((x) => x.state === "open" || x.state === "lost");
@@ -196,12 +208,12 @@ function renderDossiers() {
       const life = Math.max(1, Math.round(((x.ended || S.now) - x.created) / DAY));
       return `<div class="arch">
         <div class="arch-h" data-exp="${x.id}"><span class="dotc" style="background:${PC[x.color % 6]}"></span><b>${esc(x.title)}</b>
-          ${archMode === "done" ? `<button class="icon-btn" data-reopen="${x.id}" title="Rouvrir">${I.undo}</button>` : ""}
-          <button class="icon-btn del" data-del="${x.id}" title="Supprimer">${I.trash}</button></div>
-        <div class="arch-meta"><span title="Créé → terminé">${I.clock}${dateS(x.created)} → ${dateS(x.ended || S.now)}</span><span title="Durée de vie">${life} j</span><span title="Activations">${I.flame}${x.activations}</span></div>
+          ${archMode === "done" ? `<button class="icon-btn" data-reopen="${x.id}" title="${t("dos.reopen")}">${I.undo}</button>` : ""}
+          <button class="icon-btn del" data-del="${x.id}" title="${t("dos.delete")}">${I.trash}</button></div>
+        <div class="arch-meta"><span title="${t("dos.createdEnded")}">${I.clock}${dateS(x.created)} → ${dateS(x.ended || S.now)}</span><span title="${t("dos.lifespan")}">${t("fmt.days", { n: life })}</span><span title="${t("dos.activations")}">${I.flame}${x.activations}</span></div>
         ${archExpanded === x.id && x.notes ? `<div class="arch-notes">${esc(x.notes)}</div>` : ""}
       </div>`;
-    }).join("") : `<div class="empty-ico" title="Vide">${archMode === "done" ? I.check : I.skull}</div>`);
+    }).join("") : `<div class="empty-ico" title="${t("dos.empty")}">${archMode === "done" ? I.check : I.skull}</div>`);
   }
 }
 
@@ -215,20 +227,20 @@ function renderSites() {
     const c = { ...GDEF, ...(st.gauge_cfg || {})[site] };
     const off = st.sites_off.includes(site);
     const pct = Math.max(0, Math.min(100, (100 * g.level) / g.max));
-    const label = off ? "" : !c.enabled ? I.lock : g.locked ? `${I.lock}${Math.ceil(g.refill_in / 60)} min` : `${Math.floor(g.level / 60)} / ${c.max_min} min`;
+    const label = off ? "" : !c.enabled ? I.lock : g.locked ? `${I.lock}${t("fmt.min", { n: Math.ceil(g.refill_in / 60) })}` : `${Math.floor(g.level / 60)} / ${t("fmt.min", { n: c.max_min })}`;
     const body = openSite === site ? `
       <div class="site-b">
-        <i>${I.gauge}</i><span>Jauge</span><div class="switch end ${c.enabled ? "on" : ""}" data-gon="${i}"></div>
-        <i>${I.size}</i><span>Taille</span><div class="stepper end"><button data-g="${i}" data-k="max_min" data-d="-5">${I.minus}</button><span>${c.max_min} min</span><button data-g="${i}" data-k="max_min" data-d="5">${I.plus}</button></div>
-        <i>${I.down}</i><span>Usure</span><div class="stepper end"><button data-g="${i}" data-k="drain" data-d="-0.5">${I.minus}</button><span>×${c.drain}</span><button data-g="${i}" data-k="drain" data-d="0.5">${I.plus}</button></div>
-        <i>${I.up}</i><span>Recharge</span><div class="stepper end"><button data-g="${i}" data-k="refill_per_hour" data-d="-5">${I.minus}</button><span>${c.refill_per_hour} min/h</span><button data-g="${i}" data-k="refill_per_hour" data-d="5">${I.plus}</button></div>
-        <div class="foot"><button class="icon-btn del" data-del="${i}" title="Retirer">${I.trash}</button></div>
+        <i>${I.gauge}</i><span>${t("site.gauge")}</span><div class="switch end ${c.enabled ? "on" : ""}" data-gon="${i}"></div>
+        <i>${I.size}</i><span>${t("site.size")}</span><div class="stepper end"><button data-g="${i}" data-k="max_min" data-d="-5">${I.minus}</button><span>${t("fmt.min", { n: c.max_min })}</span><button data-g="${i}" data-k="max_min" data-d="5">${I.plus}</button></div>
+        <i>${I.down}</i><span>${t("site.drain")}</span><div class="stepper end"><button data-g="${i}" data-k="drain" data-d="-0.5">${I.minus}</button><span>×${c.drain}</span><button data-g="${i}" data-k="drain" data-d="0.5">${I.plus}</button></div>
+        <i>${I.up}</i><span>${t("site.refill")}</span><div class="stepper end"><button data-g="${i}" data-k="refill_per_hour" data-d="-5">${I.minus}</button><span>${t("fmt.perHour", { n: c.refill_per_hour })}</span><button data-g="${i}" data-k="refill_per_hour" data-d="5">${I.plus}</button></div>
+        <div class="foot"><button class="icon-btn del" data-del="${i}" title="${t("site.remove")}">${I.trash}</button></div>
       </div>` : "";
     return `<div class="site ${off ? "off" : ""}">
       <div class="site-h" data-open="${i}">
         <div class="site-m"><div class="site-n">${esc(site)}<span>${label}</span></div>
           ${!off && c.enabled ? `<div class="gbar"><div class="gfill ${pct < 25 ? "low" : ""} ${g.using ? "using" : ""}" style="width:${pct}%"></div></div>` : ""}</div>
-        <div class="switch ${off ? "" : "on"}" data-tog="${i}" title="Actif"></div>
+        <div class="switch ${off ? "" : "on"}" data-tog="${i}" title="${t("site.active")}"></div>
       </div>${body}</div>`;
   }).join("");
   setHTML($("siteList"), html);
@@ -251,40 +263,35 @@ function renderRappels() {
   // 1 raté : avertissement. 2 ratés : tout est en pause.
   const warn = S.missed > 0;
   $("missedTag").classList.toggle("hidden", !warn);
-  $("missedTag").innerHTML = on ? `${I.bellOff}${S.missed} raté` : `${I.bellOff}en pause`;
-  $("missedTag").dataset.tip = on ? "Encore un rappel raté et tous les rappels s'éteignent" : "Rallume l'interrupteur pour réactiver tes rappels";
+  $("missedTag").innerHTML = on ? `${I.bellOff}${t("rem.missedN", { n: S.missed })}` : `${I.bellOff}${t("rem.paused")}`;
+  $("missedTag").dataset.tip = on ? t("rem.missedTip") : t("rem.pausedTip");
 
 
   const once = S.settings.reminders.filter((r) => r.once_at).sort((a, b) => a.once_at - b.once_at);
-  if (!$("onceAdd").dataset.k) {
-    $("onceAdd").dataset.k = 1;
-    $("onceChips").innerHTML = [5, 15, 30, 60].map((m) => `<button type="button" data-q="${m}" title="Dans ${m < 60 ? m + " min" : "1 h"}">${m < 60 ? m + "<small>m</small>" : "1 h"}</button>`).join("") +
-      `<label title="À une heure précise">${I.clock}<input type="time" id="onceTime" /></label>`;
-  }
   setHTML($("onceList"), once.map((r) => `
     <div class="rem"><span class="ri">${I.bell}</span><span class="rl" style="cursor:default">${esc(r.label)}</span>
-      <span class="when" title="À ${clock(r.once_at)}">${I.clock}${soon(r.once_at - S.now)}</span>
-      <button class="icon-btn del" data-rdel="${r.id}" title="Supprimer">${I.trash}</button></div>`).join(""));
+      <span class="when" title="${t("fmt.at", { t: clock(r.once_at) })}">${I.clock}${soon(r.once_at - S.now)}</span>
+      <button class="icon-btn del" data-rdel="${r.id}" title="${t("rem.delete")}">${I.trash}</button></div>`).join(""));
 
   if (editingIn($("remList"))) return;
   const rec = S.settings.reminders.filter((r) => !r.once_at);
   setHTML($("remList"), rec.map((r) => `
     <div class="rem ${r.enabled ? "" : "off"}" data-id="${r.id}">
-      <button class="ri" data-ico="${r.id}" title="Icône">${I[r.icon] || I.bell}</button>
+      <button class="ri" data-ico="${r.id}" title="${t("rem.icon")}">${I[r.icon] || I.bell}</button>
       <div class="rt"><span class="rl" contenteditable="plaintext-only" data-label="${r.id}" spellcheck="false">${esc(r.label)}</span>
         <span class="rn">${!r.enabled || !on ? "—" : S.due && S.due[r.id] != null ? `${I.clock}${soon(S.due[r.id])}` : ""}</span></div>
-      <div class="stepper" title="Intervalle"><button data-every="${r.id}" data-d="-1">${I.minus}</button><span>${dur(r.every_min)}</span><button data-every="${r.id}" data-d="1">${I.plus}</button></div>
+      <div class="stepper" title="${t("rem.interval")}"><button data-every="${r.id}" data-d="-1">${I.minus}</button><span>${dur(r.every_min)}</span><button data-every="${r.id}" data-d="1">${I.plus}</button></div>
       <div class="switch ${r.enabled ? "on" : ""}" data-ron="${r.id}"></div>
-      <button class="icon-btn del" data-rdel="${r.id}" title="Supprimer">${I.trash}</button>
+      <button class="icon-btn del" data-rdel="${r.id}" title="${t("rem.delete")}">${I.trash}</button>
     </div>`).join(""));
 }
 
 // "45 s", "12 min", "1 h 05"
 const soon = (ms) => {
   const s = Math.max(0, Math.round(ms / 1000));
-  if (s < 60) return `${s} s`;
+  if (s < 60) return t("fmt.s", { n: s });
   const m = Math.ceil(s / 60);
-  return m < 60 ? `${m} min` : `${Math.floor(m / 60)} h ${String(m % 60).padStart(2, "0")}`;
+  return m < 60 ? t("fmt.min", { n: m }) : t("fmt.hm", { h: Math.floor(m / 60), m: String(m % 60).padStart(2, "0") });
 };
 
 function quickAt(at, src = "qInput") {
@@ -292,7 +299,43 @@ function quickAt(at, src = "qInput") {
   $(src).value = "";
   invoke("reminder_once", { label, at });
   closeQuick();
-  toast(`${label || "Rappel"} · ${clock(at)}`);
+  toast(`${label || t("rem.default")} · ${clock(at)}`);
+}
+
+// Quand : "15" = dans 15 min, "1h30" = dans 1 h 30, "14:30" = à 14 h 30. Vide = 15 min.
+function parseWhen(str) {
+  const v = String(str || "").trim().toLowerCase().replace(/\s+/g, "");
+  if (!v) return Date.now() + 15 * 60000;
+  let m = v.match(/^(\d{1,2}):(\d{2})$/);
+  if (m) {
+    const d = new Date(); d.setHours(+m[1], +m[2], 0, 0);
+    if (+m[1] > 23 || +m[2] > 59) return null;
+    if (d.getTime() <= Date.now()) d.setDate(d.getDate() + 1);
+    return d.getTime();
+  }
+  m = v.match(/^(\d{1,3})(?:m|min)?$/);
+  if (m && +m[1] > 0) return Date.now() + +m[1] * 60000;
+  m = v.match(/^(\d{1,2})h(\d{0,2})(?:m|min)?$/);
+  if (m) return Date.now() + (+m[1] * 60 + +(m[2] || 0)) * 60000;
+  return null;
+}
+
+// Champ « quand » : aperçu de l'heure, molette ±5 min, rouge si illisible
+function bindWhen(input, onSubmit) {
+  const upd = () => {
+    const at = parseWhen(input.value);
+    input.classList.toggle("bad", at === null);
+    input.dataset.tip = at === null ? t("rem.whenBad") : `${t("fmt.at", { t: clock(at) })} · ${t("rem.whenTip")}`;
+  };
+  input.addEventListener("input", upd);
+  input.addEventListener("focus", upd);
+  input.addEventListener("wheel", (e) => {
+    e.preventDefault();
+    const cur = /^\d+$/.test(input.value.trim()) ? +input.value.trim() : 15;
+    input.value = Math.max(5, Math.min(600, cur + (e.deltaY < 0 ? 5 : -5)));
+    upd();
+  }, { passive: false });
+  input.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); onSubmit(); } });
 }
 
 // Pas de 1 min jusqu'à 10, puis 5 min jusqu'à 1 h, puis 15 min
@@ -308,21 +351,25 @@ const stepEvery = (m, d) => {
 function renderSettings() {
   $("autoSwitch").classList.toggle("on", !!S.autostart);
   $("soundSwitch").classList.toggle("on", S.settings.sound);
-  setHTML($("decayStep"), `<button data-dd="-1">${I.minus}</button><span>${S.settings.dossier_decay}%/j</span><button data-dd="1">${I.plus}</button>`);
-  const sc = (a) => a.split("+").map((k) => ({ ctrl: "Ctrl", alt: "Alt", shift: "Maj", super: "Win", space: "Espace" }[k] || k.replace(/^key/, "").toUpperCase())).join(" ");
+  setHTML($("decayStep"), `<button data-dd="-1">${I.minus}</button><span>${t("fmt.perDay", { n: S.settings.dossier_decay })}</span><button data-dd="1">${I.plus}</button>`);
+  const sc = (a) => a.split("+").map((k) => (["ctrl", "alt", "shift", "super", "space"].includes(k) ? t(`key.${k}`) : k.replace(/^key/, "").toUpperCase())).join(" ");
+  // Langue
+  const langs = S.langs || [];
+  setHTML($("langSel"), [`<option value="auto">${esc(t("set.langAuto"))}</option>`, ...langs.map((l) => `<option value="${esc(l.code)}">${esc(l.name)}</option>`)].join(""));
+  if (document.activeElement !== $("langSel")) $("langSel").value = S.settings.lang || "auto";
   const ok = (S.about && S.about.sc_ok) || [true, true];
   if (scListen !== "open") $("scOpen").textContent = sc(S.settings.sc_open);
   if (scListen !== "quick") $("scQuick").textContent = sc(S.settings.sc_quick);
   for (const [id, i] of [["scOpenOk", 0], ["scQuickOk", 1]]) {
     $(id).innerHTML = ok[i] ? I.check : I.x;
     $(id).className = `scs ${ok[i] ? "okc" : "warn"}`;
-    $(id).dataset.tip = ok[i] ? "Actif" : "Pris par une autre app : clique pour en choisir un autre";
+    $(id).dataset.tip = ok[i] ? t("set.scOk") : t("set.scTaken");
   }
   if (!updBusy) {
     $("updRow").classList.toggle("avail", !!S.update);
-    $("updTxt").textContent = S.update ? `Version ${S.update} disponible` : "À jour";
+    $("updTxt").textContent = S.update ? t("set.updAvail", { v: S.update }) : t("set.upToDate");
     $("updBtn").innerHTML = S.update ? I.down : I.repeat;
-    $("updBtn").dataset.tip = S.update ? "Installer et relancer" : "Vérifier maintenant";
+    $("updBtn").dataset.tip = S.update ? t("set.updInstall") : t("set.updCheck");
   }
   const ab = S.about;
   if (!ab) return;
@@ -330,13 +377,13 @@ function renderSettings() {
   setHTML($("browserList"), list.length ? list.map((b) => {
     const old = b.version !== ab.ext_version; // une extension sans version est forcément ancienne
     return `<div class="row"><b>${esc(BNAME[b.name] || b.name)}</b><span class="muted">${esc(b.version || "?")}</span>
-      <span class="${old ? "warn" : "okc"}" title="${old ? `Extension ${esc(b.version || "ancienne")} · recharge-la pour passer à ${esc(ab.ext_version)}` : "À jour"}">${old ? I.repeat : I.check}</span></div>`;
-  }).join("") : `<div class="row"><b class="muted">Aucun navigateur connecté</b></div>`);
+      <span class="${old ? "warn" : "okc"}" title="${old ? esc(t("set.extOld", { v: b.version || t("set.extOldName"), n: ab.ext_version })) : t("set.upToDate")}">${old ? I.repeat : I.check}</span></div>`;
+  }).join("") : `<div class="row"><b class="muted">${t("set.noBrowser")}</b></div>`);
   setHTML($("about"), `
-    <div class="ab"><span>Cap</span><b>${esc(ab.version)}</b></div>
-    <div class="ab"><span>Compilé le</span><b>${new Date(ab.built).toLocaleString("fr-CA", { dateStyle: "medium", timeStyle: "short" })}</b></div>
-    <div class="ab"><span>Extension livrée</span><b>${esc(ab.ext_version)}</b></div>
-    <div class="ab"><span>Données</span><b class="path" title="${esc(ab.data_dir)}">${esc(ab.data_dir)}</b><button class="icon-btn sm" id="openData" title="Ouvrir le dossier">${I.folder}</button></div>`);
+    <div class="ab"><span>${t("set.version")}</span><b>${esc(ab.version)}</b></div>
+    <div class="ab"><span>${t("set.built")}</span><b>${new Date(ab.built).toLocaleString(LOC(), { dateStyle: "medium", timeStyle: "short" })}</b></div>
+    <div class="ab"><span>${t("set.extShipped")}</span><b>${esc(ab.ext_version)}</b></div>
+    <div class="ab"><span>${t("set.data")}</span><b class="path" title="${esc(ab.data_dir)}">${esc(ab.data_dir)}</b><button class="icon-btn sm" id="openData" title="${t("set.openFolder")}">${I.folder}</button></div>`);
 }
 
 // ---------------------------------------------------- stats
@@ -371,7 +418,7 @@ function renderStats() {
   if (period === 1) {
     buckets = Array(24).fill(0);
     sess.forEach((e) => { buckets[new Date(e.t - e.n * 60000).getHours()] += e.n; });
-    labels = ["0 h", "6 h", "12 h", "18 h", "23 h"];
+    labels = [0, 6, 12, 18, 23].map((h) => t("fmt.h", { h }));
   } else {
     const nb = Math.min(days, 60);
     const start = dayStart(now) - (nb - 1) * DAY;
@@ -380,7 +427,7 @@ function renderStats() {
     labels = [dateS(start), dateS(now)];
   }
   const bmax = Math.max(1, ...buckets);
-  const barTip = (i) => period === 1 ? `${i} h · ${dur(buckets[i])}` : `${dateS(dayStart(now) - (buckets.length - 1 - i) * DAY)} · ${dur(buckets[i])}`;
+  const barTip = (i) => period === 1 ? `${t("fmt.h", { h: i })} · ${dur(buckets[i])}` : `${dateS(dayStart(now) - (buckets.length - 1 - i) * DAY)} · ${dur(buckets[i])}`;
 
   // heures productives (toute la période)
   const hours = Array(24).fill(0);
@@ -417,33 +464,33 @@ function renderStats() {
   const sec = (ico, title, body) => `<div class="st-sec"><div class="st-h">${I[ico]}${title}</div>${body}</div>`;
 
   $("stats").innerHTML = [
-    sec("timer", "Focus", `
-      <div class="kpis">${kpi(dur(total), "total")}${kpi(sess.length, "sessions", `${done.length} complètes · ${stop.length} écourtées`)}${kpi(rate + "%", "complètes")}
-      ${kpi(sess.length ? dur(total / sess.length) : "0 min", "moyenne")}${kpi(dur(longest), "plus longue")}${kpi(streak + " j", "série")}</div>
+    sec("timer", t("st.focus"), `
+      <div class="kpis">${kpi(dur(total), t("st.total"))}${kpi(sess.length, t("st.sessions"), t("st.sessionsTip", { a: done.length, b: stop.length }))}${kpi(rate + "%", t("st.completeRate"))}
+      ${kpi(sess.length ? dur(total / sess.length) : dur(0), t("st.avg"))}${kpi(dur(longest), t("st.longest"))}${kpi(t("fmt.days", { n: streak }), t("st.streak"))}</div>
       <div class="chart"><div class="bars">${buckets.map((v, i) => `<div class="${v ? "" : "z"}" style="height:${(100 * v) / bmax}%" data-tip="${esc(barTip(i))}"></div>`).join("")}</div>
       <div class="axis">${labels.map((l) => `<span>${l}</span>`).join("")}</div></div>
-      ${period !== 1 ? `<div class="chart"><div class="heat">${hours.map((v, h) => `<div style="opacity:${v ? 0.15 + 0.85 * (v / hmax) : 0.06}" data-tip="${h} h · ${dur(v)}"></div>`).join("")}</div>
-      <div class="axis"><span>0 h</span><span>6 h</span><span>12 h</span><span>18 h</span><span>23 h</span></div></div>` : ""}`),
-    sec("clock", "Historique", sess.length ? `<div class="hist">${sess.slice().sort((a, b) => b.t - a.t).slice(0, 15).map((e) => `
+      ${period !== 1 ? `<div class="chart"><div class="heat">${hours.map((v, h) => `<div style="opacity:${v ? 0.15 + 0.85 * (v / hmax) : 0.06}" data-tip="${t("fmt.h", { h })} · ${dur(v)}"></div>`).join("")}</div>
+      <div class="axis">${[0, 6, 12, 18, 23].map((h) => `<span>${t("fmt.h", { h })}</span>`).join("")}</div></div>` : ""}`),
+    sec("clock", t("st.history"), sess.length ? `<div class="hist">${sess.slice().sort((a, b) => b.t - a.t).slice(0, 15).map((e) => `
       <div class="hi"><span class="hs ${e.k === "focus_done" ? "ok" : ""}">${e.k === "focus_done" ? I.check : I.stop}</span>
         <span class="hd">${dateS(e.t)} · ${clock(e.t - e.n * 60000)}</span><b class="${e.a ? "" : "none"}">${esc(e.a || "—")}</b><span class="hm">${dur(e.n)}</span></div>`).join("")}</div>` : `<div class="st-empty">—</div>`),
-    sec("gauge", "Sites", `
-      <div class="kpis">${kpi(dur(usageTotal / 60), "sur les sites")}${kpi(of("lockout").length, "jauges à sec")}${kpi(hits, "bloqués", "Tentatives d'ouverture bloquées")}</div>
+    sec("gauge", t("st.sites"), `
+      <div class="kpis">${kpi(dur(usageTotal / 60), t("st.onSites"))}${kpi(of("lockout").length, t("st.lockouts"))}${kpi(hits, t("st.blocked"), t("st.blockedTip"))}</div>
       ${siteNames.length ? `<div class="chart hbars">${siteNames.slice(0, 8).map((s) => `
-        <div class="hb-row" data-tip="${esc(`${s} · ${dur((usage[s] || 0) / 60)} · ${lock[s] || 0} à sec · ${(hitF[s] || 0) + (hitG[s] || 0)} bloqués`)}"><b>${esc(short(s))}</b>
+        <div class="hb-row" data-tip="${esc(t("st.siteTip", { s, d: dur((usage[s] || 0) / 60), l: lock[s] || 0, b: (hitF[s] || 0) + (hitG[s] || 0) }))}"><b>${esc(short(s))}</b>
           <div class="track"><div style="width:${(100 * (usage[s] || 0)) / umax}%"></div></div>
           <span>${dur((usage[s] || 0) / 60)}</span></div>`).join("")}</div>` : `<div class="st-empty">—</div>`}`),
-    sec("bell", "Rappels", `
-      <div class="kpis">${kpi(ack.length, "confirmés")}${kpi(miss.length, "ratés")}${kpi(ackRate + "%", "taux")}</div>
+    sec("bell", t("st.reminders"), `
+      <div class="kpis">${kpi(ack.length, t("st.acked"))}${kpi(miss.length, t("st.missed"))}${kpi(ackRate + "%", t("st.rate"))}</div>
       ${remNames.length ? `<div class="chart hbars">${remNames.slice(0, 8).map((r) => {
-        const v = perRem[r], t = v.a + v.m;
-        return `<div class="hb-row" data-tip="${esc(`${r} · ${v.a} confirmés · ${v.m} ratés`)}"><b>${esc(r)}</b><div class="track"><div style="width:${(100 * v.a) / Math.max(1, t)}%"></div></div><span>${v.a}/${t}</span></div>`;
+        const v = perRem[r], tot = v.a + v.m;
+        return `<div class="hb-row" data-tip="${esc(t("st.remTip", { r, a: v.a, m: v.m }))}"><b>${esc(r)}</b><div class="track"><div style="width:${(100 * v.a) / Math.max(1, tot)}%"></div></div><span>${v.a}/${tot}</span></div>`;
       }).join("")}</div>` : ""}
-      ${later.length ? `<div class="st-empty">${later.length} reportés</div>` : ""}`),
-    sec("folder", "Dossiers", `
-      <div class="kpis">${kpi(open.length, "en cours")}${kpi(avgLvl + "%", "activité moy.")}${kpi(dAct, "activations")}
-      ${kpi(dNew, "créés")}${kpi(dDone, "complétés")}${kpi(dLost, "perdus")}</div>
-      ${ended.length ? `<div class="st-empty">Durée de vie moyenne : ${life} j</div>` : ""}`),
+      ${later.length ? `<div class="st-empty">${t("st.snoozed", { n: later.length })}</div>` : ""}`),
+    sec("folder", t("st.dossiers"), `
+      <div class="kpis">${kpi(open.length, t("st.open"))}${kpi(avgLvl + "%", t("st.avgActivity"))}${kpi(dAct, t("st.activations"))}
+      ${kpi(dNew, t("st.created"))}${kpi(dDone, t("st.completed"))}${kpi(dLost, t("st.lost"))}</div>
+      ${ended.length ? `<div class="st-empty">${t("st.lifespan", { n: life })}</div>` : ""}`),
   ].join("");
 }
 
@@ -500,9 +547,9 @@ function bind() {
   // Maintenir − ou + : ça accélère
   for (const [id, d] of [["minusBtn", -1], ["plusBtn", 1]]) {
     const b = $(id);
-    let t = null, n = 0;
-    const step = () => { setMinutes(minutes + d * (n > 12 ? 5 : 1)); n++; t = setTimeout(step, n === 1 ? 380 : 70); };
-    const end = () => { clearTimeout(t); t = null; n = 0; };
+    let tmr = null, n = 0;
+    const step = () => { setMinutes(minutes + d * (n > 12 ? 5 : 1)); n++; tmr = setTimeout(step, n === 1 ? 380 : 70); };
+    const end = () => { clearTimeout(tmr); tmr = null; n = 0; };
     b.addEventListener("pointerdown", (e) => { e.preventDefault(); step(); });
     b.addEventListener("pointerup", end);
     b.addEventListener("pointerleave", end);
@@ -612,17 +659,15 @@ function bind() {
     $("remList").dataset.k = "";
   });
   $("remList").addEventListener("keydown", (e) => { if (e.target.dataset.label && e.key === "Enter") { e.preventDefault(); e.target.blur(); } });
-  const onceAt = (at) => quickAt(at, "onceInput");
-  $("onceChips").onclick = (e) => { const b = e.target.closest("[data-q]"); if (b) onceAt(Date.now() + +b.dataset.q * 60000); };
-  $("onceChips").addEventListener("change", (e) => {
-    if (e.target.id !== "onceTime" || !e.target.value) return;
-    const [h, m] = e.target.value.split(":").map(Number);
-    const d = new Date(); d.setHours(h, m, 0, 0);
-    if (d.getTime() <= Date.now()) d.setDate(d.getDate() + 1);
-    onceAt(d.getTime());
-    e.target.value = "";
-  });
-  $("onceInput").addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); onceAt(Date.now() + 15 * 60000); } });
+  // Rappel unique : quoi + quand, Entrée ou +
+  const addOnce = () => {
+    const at = parseWhen($("onceWhen").value);
+    if (at === null) { $("onceWhen").focus(); return; }
+    quickAt(at, "onceInput");
+    $("onceWhen").value = "";
+  };
+  $("onceAdd").onsubmit = (e) => { e.preventDefault(); addOnce(); };
+  bindWhen($("onceWhen"), addOnce);
   $("addRem").onsubmit = (e) => {
     e.preventDefault();
     const v = $("remInput").value.trim();
@@ -669,12 +714,12 @@ function bind() {
     if (updBusy) return;
     updBusy = true;
     if (S.update) {
-      $("updTxt").textContent = `Installation de ${S.update}…`;
+      $("updTxt").textContent = t("set.updInstalling", { v: S.update });
       try { await invoke("install_update"); } catch (e) { $("updTxt").textContent = String(e); }
     } else {
-      $("updTxt").textContent = "Vérification…";
+      $("updTxt").textContent = t("set.updChecking");
       try { S.update = await invoke("check_update"); } catch { S.update = null; }
-      if (!S.update) $("updTxt").textContent = "À jour";
+      if (!S.update) $("updTxt").textContent = t("set.upToDate");
     }
     updBusy = false;
     renderSettings();
@@ -720,24 +765,37 @@ function bind() {
     if (b.dataset.qa === "focus") { if (!S.session) startFocus(); showTab("focus"); }
     else openQuick(b.dataset.qa);
   };
-  $("qInput").addEventListener("keydown", (e) => {
-    if (e.key === "Escape") { e.stopPropagation(); closeQuick(); }
-    if (e.key !== "Enter") return;
-    e.preventDefault();
-    if (quickKind === "dos") { const v = $("qInput").value.trim(); if (v) { invoke("dossier_add", { title: v }); toast(v); } closeQuick(); }
-    else quickAt(Date.now() + 15 * 60000);
-  });
-  $("qChips").onclick = (e) => {
-    const b = e.target.closest("[data-q]"); if (b) quickAt(Date.now() + +b.dataset.q * 60000);
-    const a = e.target.closest("[data-qadd]"); if (a) { const v = $("qInput").value.trim(); if (v) { invoke("dossier_add", { title: v }); toast(v); } closeQuick(); }
+  const submitQuick = () => {
+    if (quickKind === "dos") {
+      const v = $("qInput").value.trim();
+      if (v) { invoke("dossier_add", { title: v }); toast(v); }
+      return closeQuick();
+    }
+    const at = parseWhen($("qWhen").value);
+    if (at === null) return $("qWhen").focus();
+    quickAt(at);
   };
-  $("qChips").addEventListener("change", (e) => {
-    if (e.target.id !== "qTime" || !e.target.value) return;
-    const [h, m] = e.target.value.split(":").map(Number);
-    const d = new Date(); d.setHours(h, m, 0, 0);
-    if (d.getTime() <= Date.now()) d.setDate(d.getDate() + 1);
-    quickAt(d.getTime());
-  });
+  $("qpanel").onsubmit = (e) => { e.preventDefault(); submitQuick(); };
+  $("qpanel").addEventListener("keydown", (e) => { if (e.key === "Escape") { e.stopPropagation(); closeQuick(); } });
+  bindWhen($("qWhen"), submitQuick);
+
+  // Langue
+  $("langSel").onchange = async () => {
+    const r = await invoke("set_lang", { lang: $("langSel").value });
+    setLang(r.i18n, r.langs);
+  };
+  $("langImport").onclick = () => $("langFile").click();
+  $("langFile").onchange = async () => {
+    const f = $("langFile").files[0];
+    $("langFile").value = "";
+    if (!f) return;
+    try {
+      const name = await invoke("import_locale", { content: await f.text() });
+      await refresh();
+      toast(t("set.langImported", { n: name }));
+    } catch (err) { toast(String(err)); }
+  };
+  $("langFolder").onclick = () => invoke("open_locales_folder");
   document.addEventListener("mousedown", (e) => {
     if (!e.target.closest("#fab")) $("fab").classList.remove("open");
     if (!e.target.closest("#picker") && !e.target.closest("[data-ico]")) $("picker").classList.add("hidden");
@@ -761,8 +819,8 @@ function bind() {
 }
 
 // ---------------------------------------------------- performance
-const mb = (b) => (b >= 1073741824 ? `${(b / 1073741824).toFixed(1)} Go` : `${Math.round(b / 1048576)} Mo`);
-const kb = (b) => (b >= 1048576 ? `${(b / 1048576).toFixed(1)} Mo` : `${Math.max(1, Math.round(b / 1024))} Ko`);
+const mb = (b) => (b >= 1073741824 ? `${(b / 1073741824).toFixed(1)} ${t("unit.gb")}` : `${Math.round(b / 1048576)} ${t("unit.mb")}`);
+const kb = (b) => (b >= 1048576 ? `${(b / 1048576).toFixed(1)} ${t("unit.mb")}` : `${Math.max(1, Math.round(b / 1024))} ${t("unit.kb")}`);
 function spark(svg, vals, max) {
   const n = 60, w = 300, h = 60;
   const pts = vals.slice(-n).map((v, i, a) => [(w * (i + n - a.length)) / (n - 1), h - 4 - ((h - 8) * v) / max]);
@@ -782,26 +840,24 @@ async function pollPerf() {
   const cmax = Math.max(5, ...cpus), mmax = Math.max(50, ...mems) * 1.15;
   spark($("pfCpuSpark"), cpus, cmax);
   spark($("pfMemSpark"), mems, mmax);
-  $("pfCpuMax").textContent = `max ${Math.max(...cpus).toFixed(1)} %`;
-  $("pfMemMax").textContent = `max ${mb(Math.max(...perfHist.map((x) => x.mem)))}`;
+  $("pfCpuMax").textContent = t("pf.max", { v: `${Math.max(...cpus).toFixed(1)} %` });
+  $("pfMemMax").textContent = t("pf.max", { v: mb(Math.max(...perfHist.map((x) => x.mem))) });
   const up = Math.floor(p.uptime / 1000);
   setHTML($("pfDetails"), `
-    <div class="ab"><span>Cap seul</span><b>${p.cap_cpu.toFixed(1)} % · ${mb(p.cap_mem)}</b></div>
-    <div class="ab"><span>Affichage</span><b>${(p.cpu - p.cap_cpu).toFixed(1)} % · ${mb(p.mem - p.cap_mem)}</b></div>
-    <div class="ab"><span>Ouvert depuis</span><b>${Math.floor(up / 3600)} h ${String(Math.floor((up % 3600) / 60)).padStart(2, "0")}</b></div>
-    <div class="ab"><span>Données</span><b>${kb(p.data)} · ${p.events} événements</b></div>
-    <div class="ab"><span>Cœurs</span><b>${p.cores}</b></div>`);
+    <div class="ab"><span>${t("pf.capOnly")}</span><b>${p.cap_cpu.toFixed(1)} % · ${mb(p.cap_mem)}</b></div>
+    <div class="ab"><span>${t("pf.display")}</span><b>${(p.cpu - p.cap_cpu).toFixed(1)} % · ${mb(p.mem - p.cap_mem)}</b></div>
+    <div class="ab"><span>${t("pf.uptime")}</span><b>${t("fmt.hm", { h: Math.floor(up / 3600), m: String(Math.floor((up % 3600) / 60)).padStart(2, "0") })}</b></div>
+    <div class="ab"><span>${t("pf.data")}</span><b>${t("pf.events", { s: kb(p.data), n: p.events })}</b></div>
+    <div class="ab"><span>${t("pf.cores")}</span><b>${p.cores}</b></div>`);
 }
 
 let quickKind = "rem";
 function openQuick(kind = "rem") {
   quickKind = kind;
   $("fab").classList.remove("open");
-  $("qInput").placeholder = kind === "dos" ? "Dossier" : "Rappel";
-  $("qChips").innerHTML = kind === "dos"
-    ? `<button data-qadd="1" title="Ajouter">${I.plus}</button>`
-    : [5, 15, 30, 60].map((m) => `<button data-q="${m}" title="Dans ${m < 60 ? m + " min" : "1 h"}">${m < 60 ? m + "<small>m</small>" : "1 h"}</button>`).join("") +
-      `<label title="À une heure précise">${I.clock}<input type="time" id="qTime" /></label>`;
+  $("qInput").placeholder = kind === "dos" ? t("qa.dosPh") : t("qa.remPh");
+  $("qWhen").classList.toggle("hidden", kind === "dos");
+  $("qWhen").value = "";
   $("qpanel").classList.remove("hidden");
   $("fabBtn").innerHTML = I.close;
   setTimeout(() => $("qInput").focus(), 30);
@@ -824,15 +880,27 @@ function openPicker(btn, r) {
   p.style.top = `${top}px`;
 }
 
+function setLang(dict, langs) {
+  if (!dict) return;
+  L = dict;
+  if (langs) S.langs = langs;
+  applyI18n();
+  // vider les caches de rendu pour tout redessiner dans la nouvelle langue
+  document.querySelectorAll("[data-k]").forEach((el) => (el.dataset.k = ""));
+  render();
+}
+
 async function refresh() {
   S = await invoke("get_state");
   $("verTag").textContent = S.about ? S.about.version : "";
   if (!primed) { minutes = S.settings.minutes || 25; primed = true; }
-  render();
+  if (S.i18n && JSON.stringify(S.i18n) !== JSON.stringify(L)) setLang(S.i18n, S.langs); else render();
 }
 
 bind();
 showTab("focus");
 refresh();
-T.event.listen("tick", (e) => { const a = S && S.autostart, ab = S && S.about; S = e.payload; S.autostart = a; S.about = ab; if (!primed) refresh(); else render(); });
+T.event.listen("tick", (e) => { const keep = S ? { autostart: S.autostart, about: S.about, langs: S.langs, i18n: S.i18n } : {}; S = Object.assign(e.payload, keep); if (!primed) refresh(); else render(); });
+// La langue du système sert quand le réglage est « Automatique »
+invoke("set_system_lang", { lang: navigator.language || "en" }).then(refresh).catch(() => {});
 T.event.listen("quick", () => openQuick("rem"));
