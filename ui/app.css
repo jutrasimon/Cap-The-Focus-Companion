@@ -402,3 +402,28 @@ main { flex: 1; position: relative; min-height: 0; }
 .row.upd .icon-btn.sm { margin-left: 0; }
 .row.upd.avail { border-color: color-mix(in srgb, var(--accent) 40%, transparent); }
 .row.upd.avail > i, .row.upd.avail .icon-btn.sm { color: var(--accent); }
+
+.focus-note { width: 100%; max-width: 300px; height: 36px; border-radius: 12px; border: 1px solid transparent; background: transparent; text-align: center; font-size: 15px; font-weight: 600; outline: 0; user-select: text; flex: none; transition: background .15s, border-color .15s; }
+.focus-note::placeholder { color: var(--faint); font-weight: 500; }
+.focus-note:hover { background: var(--panel); }
+.focus-note:focus { background: var(--panel); border-color: color-mix(in srgb, var(--accent) 45%, transparent); }
+.hist { display: flex; flex-direction: column; border-radius: 12px; overflow: hidden; border: 1px solid var(--line); }
+.hi { display: grid; grid-template-columns: 18px 92px 1fr auto; align-items: center; gap: 8px; padding: 7px 10px; background: var(--panel); font-size: 12px; border-top: 1px solid var(--line); }
+.hi:first-child { border-top: 0; }
+.hs { color: var(--faint); display: grid; place-items: center; }
+.hs.ok { color: var(--ok); }
+.hs svg { width: 13px; height: 13px; }
+.hd { color: var(--muted); font-variant-numeric: tabular-nums; }
+.hi b { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hi b.none { color: var(--faint); }
+.hm { color: var(--muted); font-variant-numeric: tabular-nums; }
+
+.spark-h { display: flex; justify-content: space-between; font-size: 11.5px; color: var(--muted); margin-bottom: 6px; }
+.spark { width: 100%; height: 60px; display: block; }
+.spark .sl { fill: none; stroke: var(--accent); stroke-width: 2; vector-effect: non-scaling-stroke; stroke-linejoin: round; }
+.spark .sa { fill: color-mix(in srgb, var(--accent) 14%, transparent); stroke: none; }
+.row.sc kbd { min-width: 82px; text-align: center; }
+.row.sc.listening { border-color: color-mix(in srgb, var(--accent) 55%, transparent); }
+.row.sc.listening kbd { color: var(--accent); animation: breathe 1.2s ease-in-out infinite; }
+.scs { width: 22px; display: grid; place-items: center; }
+.scs svg { width: 14px; height: 14px; }

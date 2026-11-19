@@ -11,7 +11,7 @@ Petite app Windows pour travailler avec intention : sessions de focus, dossiers 
    - **Chrome, Edge, Brave, Vivaldi, Opera** : décompresse `cap-extension-chromium.zip`, puis page des extensions > *Mode développeur* > *Charger l'extension non empaquetée*.
    - **Firefox** : `cap-extension-firefox.zip`, à faire signer une fois sur addons.mozilla.org (*Developer Hub* > *Submit a New Add-on* > *On your own*).
 
-Ctrl+Alt+F ouvre ou réduit Cap. Ctrl+Alt+R ajoute un rappel.
+Ctrl+Alt+F ouvre ou réduit Cap. Ctrl+Alt+R ajoute un rappel unique. Les deux se changent dans les réglages.
 
 ## Fonctions
 

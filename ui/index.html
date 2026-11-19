@@ -7,11 +7,12 @@
 </head>
 <body>
   <div class="card" id="card">
-    <header data-tauri-drag-region>
+    <header id="hdr">
       <div class="brand"><img src="mark.png" alt="" /><span>Cap</span><small id="verTag"></small></div>
-      <div class="spacer" data-tauri-drag-region></div>
+      <div class="spacer"></div>
+      <button class="icon-btn" id="perfBtn" title="Performance"></button>
       <button class="icon-btn" id="gearBtn" title="Réglages"></button>
-      <button class="icon-btn" id="minBtn" title="Réduire · Ctrl+Alt+F"></button>
+      <button class="icon-btn" id="minBtn" title="Réduire · double-clic sur la barre · Ctrl+Alt+F"></button>
       <button class="icon-btn" id="closeBtn" title="Fermer"></button>
     </header>
 
@@ -43,6 +44,7 @@
           <button class="round big" id="startBtn" title="Lancer le focus · Entrée"></button>
           <button class="round" id="plusBtn" title="+1 min (maintenir)"></button>
         </div>
+        <input class="focus-note hidden" id="focusNote" maxlength="160" placeholder="Sur quoi ?" spellcheck="false" autocomplete="off" title="Texte du focus en cours · gardé dans les stats" />
         <div class="ctl-row hidden" id="runCtl">
           <button class="round" id="plus5" title="+5 min">+5</button>
           <button class="round big" id="pauseBtn" title="Pause · Espace"></button>
@@ -89,14 +91,26 @@
         <div class="stats" id="stats"></div>
       </section>
 
+      <!-- Performance -->
+      <section class="view hidden" data-view="perf">
+        <div class="kpis">
+          <div class="kpi" title="Part du processeur utilisée par Cap et son moteur d'affichage"><b id="pfCpu">–</b><span>processeur</span></div>
+          <div class="kpi" title="Mémoire vive utilisée par Cap et son moteur d'affichage"><b id="pfMem">–</b><span>mémoire</span></div>
+          <div class="kpi" title="Cap + processus du moteur d'affichage (WebView2)"><b id="pfProcs">–</b><span>processus</span></div>
+        </div>
+        <div class="chart"><div class="spark-h"><span>Processeur</span><span id="pfCpuMax"></span></div><svg class="spark" id="pfCpuSpark" viewBox="0 0 300 60" preserveAspectRatio="none"></svg></div>
+        <div class="chart"><div class="spark-h"><span>Mémoire</span><span id="pfMemMax"></span></div><svg class="spark" id="pfMemSpark" viewBox="0 0 300 60" preserveAspectRatio="none"></svg></div>
+        <div class="about" id="pfDetails"></div>
+      </section>
+
       <!-- Réglages -->
       <section class="view hidden" data-view="settings">
         <div class="list">
           <div class="row" id="autoRow"><i data-i="power"></i><b>Démarrer avec Windows</b><div class="switch" id="autoSwitch"></div></div>
           <div class="row" id="soundRow"><i data-i="sound"></i><b>Son de fin de focus</b><div class="switch" id="soundSwitch"></div></div>
           <div class="row"><i data-i="folder"></i><b>Déclin des dossiers</b><div class="stepper" id="decayStep"></div></div>
-          <div class="row"><i data-i="keyboard"></i><b>Ouvrir / réduire</b><kbd>Ctrl Alt F</kbd></div>
-          <div class="row"><i data-i="keyboard"></i><b>Rappel rapide</b><kbd>Ctrl Alt R</kbd></div>
+          <div class="row clickable sc" data-sc="open" title="Cliquer, puis appuyer sur la nouvelle combinaison"><i data-i="keyboard"></i><b>Ouvrir / réduire</b><kbd id="scOpen"></kbd><span class="scs" id="scOpenOk"></span></div>
+          <div class="row clickable sc" data-sc="quick" title="Cliquer, puis appuyer sur la nouvelle combinaison"><i data-i="keyboard"></i><b>Rappel unique</b><kbd id="scQuick"></kbd><span class="scs" id="scQuickOk"></span></div>
           <div class="sec-t"><i data-i="plug"></i>Navigateurs<button class="icon-btn sm" id="openExt" data-i="folder" title="Dossier de l'extension"></button></div>
           <div class="list" id="browserList"></div>
           <div class="sec-t"><i data-i="star"></i>À propos</div>
@@ -112,7 +126,7 @@
     </div>
     <div class="fab-wrap" id="fab">
       <div class="fab-menu" id="fabMenu">
-        <button data-qa="rem" title="Rappel rapide · Ctrl+Alt+R"><i data-i="bellPlus"></i></button>
+        <button data-qa="rem" title="Rappel unique · Ctrl+Alt+R"><i data-i="bellPlus"></i></button>
         <button data-qa="dos" title="Nouveau dossier"><i data-i="folder"></i></button>
         <button data-qa="focus" title="Lancer le focus"><i data-i="play"></i></button>
       </div>

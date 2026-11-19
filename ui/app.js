@@ -17,6 +17,7 @@ let archOpen = false, archMode = "done", archExpanded = null;
 let openSite = null, openMenu = null, openRem = null;
 let period = 7, stats = null, statsAt = 0;
 let updBusy = false;
+let perfTimer = null, perfHist = [], scListen = null;
 
 // ------------------------------------------------------------ utilitaires
 const fmt = (ms) => {
@@ -73,7 +74,7 @@ function toast(text) {
 
 // ------------------------------------------------------------ navigation
 function showTab(t) {
-  if (t !== "settings") lastTab = t;
+  if (t !== "settings" && t !== "perf") lastTab = t;
   tab = t;
   document.querySelectorAll(".view").forEach((v) => {
     const on = v.dataset.view === t;
@@ -82,6 +83,9 @@ function showTab(t) {
   });
   document.querySelectorAll("#tabs button").forEach((b) => b.classList.toggle("sel", b.dataset.tab === t));
   $("gearBtn").classList.toggle("on", t === "settings");
+  $("perfBtn").classList.toggle("on", t === "perf");
+  clearInterval(perfTimer);
+  if (t === "perf") { pollPerf(); perfTimer = setInterval(pollPerf, 1000); }
   if (t === "stats") loadStats();
   if (t === "settings") refresh();
   render();
@@ -114,6 +118,8 @@ function renderFocus() {
   $("minInput").classList.toggle("hidden", !!s);
   $("minUnit").classList.toggle("hidden", !!s);
   $("time").classList.toggle("hidden", !s);
+  $("focusNote").classList.toggle("hidden", !s);
+  if (s && document.activeElement !== $("focusNote")) $("focusNote").value = s.goal || "";
   if (s) {
     $("time").textContent = fmt(s.left);
     $("ring").style.strokeDashoffset = C * (1 - Math.max(0, Math.min(1, s.left / s.total)));
@@ -246,7 +252,7 @@ function renderRappels() {
   const warn = S.missed > 0;
   $("missedTag").classList.toggle("hidden", !warn);
   $("missedTag").innerHTML = on ? `${I.bellOff}${S.missed} raté` : `${I.bellOff}en pause`;
-  $("missedTag").dataset.tip = on ? "Encore un rappel raté et tous les rappels se mettent en pause" : `${S.missed} rappels ratés de suite`;
+  $("missedTag").dataset.tip = on ? "Encore un rappel raté et tous les rappels s'éteignent" : "Rallume l'interrupteur pour réactiver tes rappels";
 
 
   const once = S.settings.reminders.filter((r) => r.once_at).sort((a, b) => a.once_at - b.once_at);
@@ -303,6 +309,15 @@ function renderSettings() {
   $("autoSwitch").classList.toggle("on", !!S.autostart);
   $("soundSwitch").classList.toggle("on", S.settings.sound);
   setHTML($("decayStep"), `<button data-dd="-1">${I.minus}</button><span>${S.settings.dossier_decay}%/j</span><button data-dd="1">${I.plus}</button>`);
+  const sc = (a) => a.split("+").map((k) => ({ ctrl: "Ctrl", alt: "Alt", shift: "Maj", super: "Win", space: "Espace" }[k] || k.replace(/^key/, "").toUpperCase())).join(" ");
+  const ok = (S.about && S.about.sc_ok) || [true, true];
+  if (scListen !== "open") $("scOpen").textContent = sc(S.settings.sc_open);
+  if (scListen !== "quick") $("scQuick").textContent = sc(S.settings.sc_quick);
+  for (const [id, i] of [["scOpenOk", 0], ["scQuickOk", 1]]) {
+    $(id).innerHTML = ok[i] ? I.check : I.x;
+    $(id).className = `scs ${ok[i] ? "okc" : "warn"}`;
+    $(id).dataset.tip = ok[i] ? "Actif" : "Pris par une autre app : clique pour en choisir un autre";
+  }
   if (!updBusy) {
     $("updRow").classList.toggle("avail", !!S.update);
     $("updTxt").textContent = S.update ? `Version ${S.update} disponible` : "À jour";
@@ -409,6 +424,9 @@ function renderStats() {
       <div class="axis">${labels.map((l) => `<span>${l}</span>`).join("")}</div></div>
       ${period !== 1 ? `<div class="chart"><div class="heat">${hours.map((v, h) => `<div style="opacity:${v ? 0.15 + 0.85 * (v / hmax) : 0.06}" data-tip="${h} h · ${dur(v)}"></div>`).join("")}</div>
       <div class="axis"><span>0 h</span><span>6 h</span><span>12 h</span><span>18 h</span><span>23 h</span></div></div>` : ""}`),
+    sec("clock", "Historique", sess.length ? `<div class="hist">${sess.slice().sort((a, b) => b.t - a.t).slice(0, 15).map((e) => `
+      <div class="hi"><span class="hs ${e.k === "focus_done" ? "ok" : ""}">${e.k === "focus_done" ? I.check : I.stop}</span>
+        <span class="hd">${dateS(e.t)} · ${clock(e.t - e.n * 60000)}</span><b class="${e.a ? "" : "none"}">${esc(e.a || "—")}</b><span class="hm">${dur(e.n)}</span></div>`).join("")}</div>` : `<div class="st-empty">—</div>`),
     sec("gauge", "Sites", `
       <div class="kpis">${kpi(dur(usageTotal / 60), "sur les sites")}${kpi(of("lockout").length, "jauges à sec")}${kpi(hits, "bloqués", "Tentatives d'ouverture bloquées")}</div>
       ${siteNames.length ? `<div class="chart hbars">${siteNames.slice(0, 8).map((s) => `
@@ -442,12 +460,30 @@ function bind() {
   $("fabBtn").innerHTML = I.plus;
 
   $("minBtn").onclick = () => invoke("set_mode", { mode: "mini" });
+  // Barre du haut : glisser déplace, double-clic réduit
+  let lastDown = 0, lastX = 0, lastY = 0;
+  $("hdr").addEventListener("mousedown", (e) => {
+    if (e.button !== 0 || e.target.closest("button")) return;
+    const now = Date.now();
+    if (now - lastDown < 400 && Math.hypot(e.screenX - lastX, e.screenY - lastY) < 6) {
+      lastDown = 0;
+      return invoke("set_mode", { mode: "mini" });
+    }
+    lastDown = now; lastX = e.screenX; lastY = e.screenY;
+    T.window.getCurrentWindow().startDragging();
+  });
   $("closeBtn").onclick = () => invoke("set_mode", { mode: "closed" });
   $("gearBtn").onclick = () => showTab(tab === "settings" ? lastTab : "settings");
+  $("perfBtn").innerHTML = I.activity;
+  $("perfBtn").onclick = () => showTab(tab === "perf" ? lastTab : "perf");
   $("tabs").onclick = (e) => { const b = e.target.closest("button"); if (b) showTab(b.dataset.tab); };
 
   // Focus
   $("startBtn").onclick = startFocus;
+  const fn = $("focusNote");
+  const saveNote = () => { if (S.session && fn.value.trim() !== (S.session.goal || "")) invoke("set_goal", { goal: fn.value.trim() }); };
+  fn.addEventListener("blur", saveNote);
+  fn.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === "Escape") { e.preventDefault(); e.stopPropagation(); fn.blur(); } });
   const mi = $("minInput");
   // Au clic, tout le nombre est sélectionné : taper remplace
   let fresh = false;
@@ -606,6 +642,29 @@ function bind() {
   $("soundRow").onclick = () => saveSettings((c) => (c.sound = !c.sound));
   $("decayStep").onclick = (e) => { const b = e.target.closest("[data-dd]"); if (b) saveSettings((c) => (c.dossier_decay = Math.max(1, Math.min(50, c.dossier_decay + +b.dataset.dd)))); };
   $("openExt").onclick = () => invoke("open_extension_folder");
+  // Raccourcis : clic sur la ligne, puis la combinaison voulue
+  document.querySelectorAll(".row.sc").forEach((row) => {
+    row.onclick = () => {
+      scListen = row.dataset.sc;
+      document.querySelectorAll(".row.sc").forEach((r) => r.classList.toggle("listening", r === row));
+      row.querySelector("kbd").textContent = "…";
+    };
+  });
+  document.addEventListener("keydown", async (e) => {
+    if (!scListen) return;
+    e.preventDefault(); e.stopPropagation();
+    if (e.key === "Escape") { scListen = null; document.querySelectorAll(".row.sc").forEach((r) => r.classList.remove("listening")); return renderSettings(); }
+    if (["Control", "Alt", "Shift", "Meta", "AltGraph"].includes(e.key)) return;
+    const mods = [e.ctrlKey && "ctrl", e.altKey && "alt", e.shiftKey && "shift", e.metaKey && "super"].filter(Boolean);
+    if (!mods.length) return;
+    const code = e.code.startsWith("Key") ? e.code.slice(3) : e.code.startsWith("Digit") ? e.code.slice(5) : e.code;
+    const kind = scListen, accel = [...mods, code.toLowerCase()].join("+");
+    scListen = null;
+    document.querySelectorAll(".row.sc").forEach((r) => r.classList.remove("listening"));
+    try { await invoke("set_shortcut", { kind, accel }); toast(accel.replace(/\+/g, " ")); S = await invoke("get_state"); }
+    catch (err) { toast(String(err)); }
+    renderSettings();
+  }, true);
   $("updBtn").onclick = async () => {
     if (updBusy) return;
     updBusy = true;
@@ -699,6 +758,39 @@ function bind() {
     }
     if (e.key === " " && !typing && tab === "focus" && S.session) { e.preventDefault(); $("pauseBtn").click(); }
   });
+}
+
+// ---------------------------------------------------- performance
+const mb = (b) => (b >= 1073741824 ? `${(b / 1073741824).toFixed(1)} Go` : `${Math.round(b / 1048576)} Mo`);
+const kb = (b) => (b >= 1048576 ? `${(b / 1048576).toFixed(1)} Mo` : `${Math.max(1, Math.round(b / 1024))} Ko`);
+function spark(svg, vals, max) {
+  const n = 60, w = 300, h = 60;
+  const pts = vals.slice(-n).map((v, i, a) => [(w * (i + n - a.length)) / (n - 1), h - 4 - ((h - 8) * v) / max]);
+  if (pts.length < 2) { svg.innerHTML = ""; return; }
+  const line = pts.map((p) => p.map((x) => x.toFixed(1)).join(",")).join(" ");
+  svg.innerHTML = `<polygon points="${pts[0][0]},${h} ${line} ${pts[pts.length - 1][0]},${h}" class="sa"/><polyline points="${line}" class="sl"/>`;
+}
+async function pollPerf() {
+  let p;
+  try { p = await invoke("get_perf"); } catch { return; }
+  perfHist.push(p);
+  if (perfHist.length > 60) perfHist.shift();
+  $("pfCpu").textContent = `${p.cpu.toFixed(1)} %`;
+  $("pfMem").textContent = mb(p.mem);
+  $("pfProcs").textContent = p.procs;
+  const cpus = perfHist.map((x) => x.cpu), mems = perfHist.map((x) => x.mem / 1048576);
+  const cmax = Math.max(5, ...cpus), mmax = Math.max(50, ...mems) * 1.15;
+  spark($("pfCpuSpark"), cpus, cmax);
+  spark($("pfMemSpark"), mems, mmax);
+  $("pfCpuMax").textContent = `max ${Math.max(...cpus).toFixed(1)} %`;
+  $("pfMemMax").textContent = `max ${mb(Math.max(...perfHist.map((x) => x.mem)))}`;
+  const up = Math.floor(p.uptime / 1000);
+  setHTML($("pfDetails"), `
+    <div class="ab"><span>Cap seul</span><b>${p.cap_cpu.toFixed(1)} % · ${mb(p.cap_mem)}</b></div>
+    <div class="ab"><span>Affichage</span><b>${(p.cpu - p.cap_cpu).toFixed(1)} % · ${mb(p.mem - p.cap_mem)}</b></div>
+    <div class="ab"><span>Ouvert depuis</span><b>${Math.floor(up / 3600)} h ${String(Math.floor((up % 3600) / 60)).padStart(2, "0")}</b></div>
+    <div class="ab"><span>Données</span><b>${kb(p.data)} · ${p.events} événements</b></div>
+    <div class="ab"><span>Cœurs</span><b>${p.cores}</b></div>`);
 }
 
 let quickKind = "rem";

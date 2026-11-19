@@ -1,21 +1,44 @@
 {
   "manifest_version": 2,
   "name": "Cap · jauges et focus",
-  "version": "1.3.0",
+  "version": "1.3.1",
   "description": "Jauges de temps par site et blocage pendant tes sessions de focus. Tout reste sur ton ordinateur.",
   "browser_specific_settings": {
     "gecko": {
       "id": "cap-focus@jutras.local",
       "strict_min_version": "142.0",
-      "data_collection_permissions": { "required": ["none"] }
+      "data_collection_permissions": {
+        "required": [
+          "none"
+        ]
+      }
     }
   },
-  "permissions": ["declarativeNetRequest", "storage", "alarms", "tabs", "http://127.0.0.1:47615/*"],
-  "background": { "scripts": ["background.js"], "persistent": true },
+  "permissions": [
+    "declarativeNetRequest",
+    "storage",
+    "alarms",
+    "tabs",
+    "http://127.0.0.1:47615/*"
+  ],
+  "background": {
+    "scripts": [
+      "background.js"
+    ],
+    "persistent": true
+  },
   "browser_action": {
     "default_title": "Cap",
     "default_popup": "popup.html",
-    "default_icon": { "16": "icons/icon16.png", "32": "icons/icon32.png" }
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png"
+    }
   },
-  "icons": { "16": "icons/icon16.png", "32": "icons/icon32.png", "48": "icons/icon48.png", "128": "icons/icon128.png" }
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
 }

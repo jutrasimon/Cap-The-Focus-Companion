@@ -74,6 +74,8 @@ struct Settings {
     gauge_cfg: HashMap<String, GaugeCfg>,
     reminders: Vec<Reminder>,
     reminders_on: bool,
+    /// Rappels éteints par la pause automatique, rallumés quand on réactive
+    paused_ids: Vec<String>,
     sound: bool,
     minutes: u32,
     /// Déclin par défaut des dossiers, en % par jour.
@@ -82,6 +84,9 @@ struct Settings {
     mode: String,
     main_pos: Option<[i32; 2]>,
     mini_pos: Option<[i32; 2]>,
+    /// Raccourcis globaux : ouvrir/réduire et rappel unique
+    sc_open: String,
+    sc_quick: String,
 }
 
 impl Default for Settings {
@@ -97,12 +102,15 @@ impl Default for Settings {
                 rem("move", "Bouger", 90),
             ],
             reminders_on: true,
+            paused_ids: vec![],
             sound: true,
             minutes: 25,
             dossier_decay: 10.0,
             mode: "full".into(),
             main_pos: None,
             mini_pos: None,
+            sc_open: "ctrl+alt+f".into(),
+            sc_quick: "ctrl+alt+r".into(),
         }
     }
 }
@@ -463,6 +471,13 @@ impl Data {
         self.log("rem_missed", label, 0.0);
         if self.missed_streak >= MISSES_TO_PAUSE && self.settings.reminders_on {
             self.settings.reminders_on = false;
+            // Chaque rappel s'éteint aussi, comme si on l'avait fait à la main
+            let mut ids = vec![];
+            for r in self.settings.reminders.iter_mut().filter(|r| r.once_at.is_none() && r.enabled) {
+                r.enabled = false;
+                ids.push(r.id.clone());
+            }
+            self.settings.paused_ids = ids;
             self.due.clear();
             self.log("rem_paused", "", 0.0);
         }
@@ -1029,10 +1044,113 @@ fn get_state(app: AppHandle, st: State<S>) -> Value {
         "version": env!("CARGO_PKG_VERSION"),
         "built": env!("CAP_BUILD_MS").parse::<u64>().unwrap_or(0),
         "ext_version": env!("CAP_EXT_VERSION"),
+        "sc_ok": SC_OK.lock().map(|g| *g).unwrap_or([false, false]),
         "data_dir": d.path.parent().map(|p| p.display().to_string()).unwrap_or_default(),
         "browsers": d.ext_connected(now).iter().map(|b| json!({ "name": b, "version": d.ext_ver.get(b).cloned().unwrap_or_default() })).collect::<Vec<_>>(),
     });
     v
+}
+
+// ---------------------------------------------------------------- raccourcis
+
+/// État de chaque raccourci : vrai s'il est bien enregistré auprès de Windows
+static SC_OK: Mutex<[bool; 2]> = Mutex::new([false, false]);
+
+fn register_sc(app: &AppHandle, kind: &str, accel: &str) -> bool {
+    use tauri_plugin_global_shortcut::GlobalShortcutExt;
+    let ok = app.global_shortcut().register(accel).is_ok();
+    if let Ok(mut g) = SC_OK.lock() {
+        g[if kind == "quick" { 1 } else { 0 }] = ok;
+    }
+    ok
+}
+
+#[tauri::command]
+fn set_shortcut(app: AppHandle, st: State<S>, kind: String, accel: String) -> Result<(), String> {
+    use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut};
+    let accel = accel.to_lowercase();
+    accel.parse::<Shortcut>().map_err(|_| "Combinaison invalide".to_string())?;
+    let old = {
+        let d = st.d.lock().unwrap();
+        if kind == "quick" { d.settings.sc_quick.clone() } else { d.settings.sc_open.clone() }
+    };
+    let _ = app.global_shortcut().unregister(old.as_str());
+    if !register_sc(&app, &kind, &accel) {
+        register_sc(&app, &kind, &old);
+        return Err("Déjà utilisée par une autre app".into());
+    }
+    let mut d = st.d.lock().unwrap();
+    if kind == "quick" {
+        d.settings.sc_quick = accel;
+    } else {
+        d.settings.sc_open = accel;
+    }
+    commit(&app, &st, &mut d);
+    Ok(())
+}
+
+// ---------------------------------------------------------------- performance
+
+static STARTED: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+static PERF: Mutex<Option<(sysinfo::System, Vec<sysinfo::Pid>, u64)>> = Mutex::new(None);
+
+/// Ce que Cap coûte à la machine : Cap et ses processus WebView2.
+#[tauri::command]
+fn get_perf(st: State<S>) -> Value {
+    use sysinfo::{Pid, ProcessesToUpdate, System};
+    let me = Pid::from_u32(std::process::id());
+    let now = now_ms();
+    let mut g = PERF.lock().unwrap();
+    let (sys, tree, at) = g.get_or_insert_with(|| (System::new(), vec![], 0));
+    if now.saturating_sub(*at) > 10_000 || tree.is_empty() {
+        // Toutes les 10 s : on retrouve les processus enfants (moteur d'affichage)
+        sys.refresh_processes(ProcessesToUpdate::All, true);
+        let mut t = vec![me];
+        loop {
+            let add: Vec<Pid> = sys
+                .processes()
+                .iter()
+                .filter(|(pid, p)| !t.contains(pid) && p.parent().map_or(false, |pp| t.contains(&pp)))
+                .map(|(pid, _)| *pid)
+                .collect();
+            if add.is_empty() {
+                break;
+            }
+            t.extend(add);
+        }
+        *tree = t;
+        *at = now;
+    } else {
+        sys.refresh_processes(ProcessesToUpdate::Some(tree), true);
+    }
+    let cores = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(1) as f32;
+    let (mut cpu, mut mem, mut n, mut cap_mem, mut cap_cpu) = (0f32, 0u64, 0usize, 0u64, 0f32);
+    for pid in tree.iter() {
+        if let Some(p) = sys.process(*pid) {
+            cpu += p.cpu_usage();
+            mem += p.memory();
+            n += 1;
+            if *pid == me {
+                cap_mem = p.memory();
+                cap_cpu = p.cpu_usage();
+            }
+        }
+    }
+    drop(g);
+    let d = st.d.lock().unwrap();
+    let size = |p: &PathBuf| std::fs::metadata(p).map(|m| m.len()).unwrap_or(0);
+    json!({
+        "cpu": cpu / cores,
+        "cap_cpu": cap_cpu / cores,
+        "mem": mem,
+        "cap_mem": cap_mem,
+        "procs": n,
+        "cores": cores,
+        "uptime": now.saturating_sub(STARTED.load(std::sync::atomic::Ordering::Relaxed)),
+        "data": size(&d.path) + size(&d.stats_path),
+        "events": d.stats.events.len(),
+        "sc_ok": SC_OK.lock().map(|g| *g).unwrap_or([false, false]),
+    })
 }
 
 // ---------------------------------------------------------------- mises à jour
@@ -1165,8 +1283,11 @@ fn save_settings(app: AppHandle, st: State<S>, settings: Settings) {
     s.dossier_decay = if s.dossier_decay.is_finite() { s.dossier_decay.clamp(0.0, 100.0) } else { 10.0 };
     s.reminders = d.settings.reminders.clone();
     s.reminders_on = d.settings.reminders_on;
+    s.paused_ids = d.settings.paused_ids.clone();
     s.mode = d.settings.mode.clone();
     s.main_pos = d.settings.main_pos;
+    s.sc_open = d.settings.sc_open.clone();
+    s.sc_quick = d.settings.sc_quick.clone();
     s.mini_pos = d.settings.mini_pos;
     d.settings = s;
     commit(&app, &st, &mut d);
@@ -1233,6 +1354,12 @@ fn reminders_set_on(app: AppHandle, st: State<S>, on: bool) {
     let mut d = st.d.lock().unwrap();
     d.settings.reminders_on = on;
     d.missed_streak = 0;
+    if on {
+        let ids = std::mem::take(&mut d.settings.paused_ids);
+        for r in d.settings.reminders.iter_mut().filter(|r| ids.contains(&r.id)) {
+            r.enabled = true;
+        }
+    }
     d.due.clear();
     d.log(if on { "rem_on" } else { "rem_off" }, "", 0.0);
     commit(&app, &st, &mut d);
@@ -1273,9 +1400,9 @@ fn nudge_action(app: AppHandle, st: State<S>, action: String) {
                 }
             }
             "again" => {
-                let goal = n.title.clone();
+                // Nouveau focus, texte vierge : le texte précédent reste dans les stats
                 let m = d.settings.minutes;
-                start_session(&mut d, if goal == "Focus" { String::new() } else { goal }, m);
+                start_session(&mut d, String::new(), m);
             }
             "open" => {
                 // Ouvrir Cap n'est pas confirmer : le rappel reste à l'écran.
@@ -1485,9 +1612,12 @@ fn main() {
             open_data_folder,
             check_update,
             install_update,
+            set_shortcut,
+            get_perf,
             quit
         ])
         .setup(move |app| {
+            STARTED.store(now_ms(), std::sync::atomic::Ordering::Relaxed);
             let dir = app.path().app_config_dir().unwrap_or_else(|_| PathBuf::from("."));
             let path = dir.join("cap.json");
             let stats_path = dir.join("stats.json");
@@ -1538,9 +1668,9 @@ fn main() {
             });
             app.manage(sh.clone());
 
-            // Raccourcis : Ctrl+Alt+F ouvre ou réduit Cap, Ctrl+Alt+R ajoute un rappel
+            // Raccourcis globaux (personnalisables dans les réglages)
             {
-                use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
+                use tauri_plugin_global_shortcut::ShortcutState;
                 app.handle().plugin(
                     tauri_plugin_global_shortcut::Builder::new()
                         .with_handler(|app, sc, ev| {
@@ -1548,9 +1678,11 @@ fn main() {
                                 return;
                             }
                             let sh = app.state::<S>();
-                            if sc.key == tauri_plugin_global_shortcut::Code::KeyR {
+                            let quick = sh.d.lock().unwrap().settings.sc_quick.clone();
+                            let is_quick = quick.parse::<tauri_plugin_global_shortcut::Shortcut>().map_or(false, |q| q.id() == sc.id());
+                            if is_quick {
                                 set_mode_inner(app, &sh, "full");
-                                let _ = app.emit_to("main", "quick", ());
+                                let _ = app.emit("quick", ());
                             } else {
                                 let next = if current_mode(&sh) == "full" { "mini" } else { "full" };
                                 set_mode_inner(app, &sh, next);
@@ -1558,14 +1690,18 @@ fn main() {
                         })
                         .build(),
                 )?;
-                let _ = app.global_shortcut().register("ctrl+alt+f");
-                let _ = app.global_shortcut().register("ctrl+alt+r");
+                let (o, q) = {
+                    let d = sh.d.lock().unwrap();
+                    (d.settings.sc_open.clone(), d.settings.sc_quick.clone())
+                };
+                register_sc(app.handle(), "open", &o);
+                register_sc(app.handle(), "quick", &q);
             }
 
             // Zone de notification
             let open = MenuItem::with_id(app, "open", "Ouvrir", true, Some("Ctrl+Alt+F"))?;
             let mini = MenuItem::with_id(app, "mini", "Réduire", true, None::<&str>)?;
-            let quickrem = MenuItem::with_id(app, "quickrem", "Rappel rapide", true, Some("Ctrl+Alt+R"))?;
+            let quickrem = MenuItem::with_id(app, "quickrem", "Rappel unique", true, Some("Ctrl+Alt+R"))?;
             let quick = MenuItem::with_id(app, "quick", "Focus", true, None::<&str>)?;
             let stop_i = MenuItem::with_id(app, "stop", "Terminer le focus", false, None::<&str>)?;
             let quit_i = MenuItem::with_id(app, "quit", "Quitter", true, None::<&str>)?;
@@ -1585,7 +1721,7 @@ fn main() {
                         "mini" => set_mode_inner(app, &sh, "mini"),
                         "quickrem" => {
                             set_mode_inner(app, &sh, "full");
-                            let _ = app.emit_to("main", "quick", ());
+                            let _ = app.emit("quick", ());
                         }
                         "quick" => {
                             let mut d = sh.d.lock().unwrap();
