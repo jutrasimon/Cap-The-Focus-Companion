@@ -393,6 +393,12 @@ fn write_json(path: &PathBuf, v: &impl Serialize) {
 }
 
 impl Data {
+    /// Rappels manqués à montrer sur le côté : aucun quand les rappels sont en pause
+    /// (ils restent réclamables dans l'onglet Rappels).
+    fn stack(&self) -> Vec<Pending> {
+        if self.settings.reminders_on { self.pending.clone() } else { vec![] }
+    }
+
     fn save(&mut self) {
         if let Ok(p) = POS.lock() {
             if p[0].is_some() {
@@ -1176,7 +1182,7 @@ fn ticker(app: AppHandle, sh: S) {
                 d.save();
             }
             let mini_text = d.settings.mode == "mini";
-            let stack = if changed || d.pending.len() != pending_before { Some(d.pending.clone()) } else { None };
+            let stack = if changed || d.pending.len() != pending_before { Some(d.stack()) } else { None };
             // Personne n'affiche l'état : on évite de le construire
             let shown = d.settings.mode != "closed";
             (if shown { d.snapshot() } else { Value::Null }, show, hide, TrayInfo::of(&d), (mini_text, stack))
@@ -1733,7 +1739,7 @@ fn reminder_delete(app: AppHandle, st: State<S>, id: String) {
     d.settings.reminders.retain(|r| r.id != id);
     d.due.remove(&id);
     d.pending.retain(|p| p.rid != id);
-    let p = d.pending.clone();
+    let p = d.stack();
     commit(&app, &st, &mut d);
     drop(d);
     present_stack(&app, p);
@@ -1748,7 +1754,7 @@ fn pending_claim(app: AppHandle, st: State<S>, rid: String) {
         d.missed_streak = 0;
         d.log("rem_ack", &p.label, 0.0);
     }
-    let p = d.pending.clone();
+    let p = d.stack();
     commit(&app, &st, &mut d);
     drop(d);
     present_stack(&app, p);
@@ -1759,7 +1765,7 @@ fn pending_claim(app: AppHandle, st: State<S>, rid: String) {
 fn pending_drop(app: AppHandle, st: State<S>, rid: String) {
     let mut d = st.d.lock().unwrap();
     d.lose_pending(&rid);
-    let p = d.pending.clone();
+    let p = d.stack();
     commit(&app, &st, &mut d);
     drop(d);
     present_stack(&app, p);
@@ -1767,7 +1773,7 @@ fn pending_drop(app: AppHandle, st: State<S>, rid: String) {
 
 #[tauri::command]
 fn get_pending(st: State<S>) -> Vec<Pending> {
-    st.d.lock().unwrap().pending.clone()
+    st.d.lock().unwrap().stack()
 }
 
 #[tauri::command]
@@ -1784,6 +1790,9 @@ fn reminders_set_on(app: AppHandle, st: State<S>, on: bool) {
     d.due.clear();
     d.log(if on { "rem_on" } else { "rem_off" }, "", 0.0);
     commit(&app, &st, &mut d);
+    let p = d.stack();
+    drop(d);
+    present_stack(&app, p);
 }
 
 #[tauri::command]
@@ -1842,7 +1851,7 @@ fn nudge_action(app: AppHandle, st: State<S>, action: String) {
             _ => {}
         }
         commit(&app, &st, &mut d);
-        stack = Some(d.pending.clone());
+        stack = Some(d.stack());
     }
     hide_nudge_window(&app);
     if let Some(p) = stack {
