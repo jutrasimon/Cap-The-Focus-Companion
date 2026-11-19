@@ -1,62 +1,14 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Cap",
-  "version": "1.4.0",
+  "version": "1.4.1",
   "identifier": "app.cap.focus",
   "build": {
     "frontendDist": "../ui"
   },
   "app": {
     "withGlobalTauri": true,
-    "windows": [
-      {
-        "label": "main",
-        "title": "Cap",
-        "url": "index.html",
-        "width": 400,
-        "height": 604,
-        "resizable": false,
-        "decorations": false,
-        "transparent": true,
-        "shadow": false,
-        "alwaysOnTop": true,
-        "skipTaskbar": true,
-        "visible": false,
-        "maximizable": false
-      },
-      {
-        "label": "nudge",
-        "title": "Cap",
-        "url": "nudge.html",
-        "width": 360,
-        "height": 150,
-        "resizable": false,
-        "decorations": false,
-        "transparent": true,
-        "shadow": false,
-        "alwaysOnTop": true,
-        "skipTaskbar": true,
-        "visible": false,
-        "focus": false,
-        "maximizable": false
-      },
-      {
-        "label": "mini",
-        "title": "Cap",
-        "url": "mini.html",
-        "width": 250,
-        "height": 56,
-        "resizable": false,
-        "decorations": false,
-        "transparent": true,
-        "shadow": false,
-        "alwaysOnTop": true,
-        "skipTaskbar": true,
-        "visible": false,
-        "focus": false,
-        "maximizable": false
-      }
-    ],
+    "windows": [],
     "security": {
       "csp": "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src ipc: http://ipc.localhost"
     }

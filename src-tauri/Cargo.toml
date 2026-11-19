@@ -1,6 +1,6 @@
 [package]
 name = "cap"
-version = "1.4.0"
+version = "1.4.1"
 description = "Cap : sessions de focus, blocage de sites et rappels doux"
 edition = "2021"
 
@@ -13,9 +13,11 @@ tauri-plugin-single-instance = "2"
 tauri-plugin-autostart = "2"
 tauri-plugin-global-shortcut = "2"
 tauri-plugin-updater = "2"
-sysinfo = { version = "0.33", default-features = false, features = ["system"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_System_Diagnostics_ToolHelp", "Win32_System_ProcessStatus", "Win32_System_Threading"] }
 
 [features]
 default = ["custom-protocol"]

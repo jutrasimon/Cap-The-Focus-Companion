@@ -1,7 +1,7 @@
 {
   "manifest_version": 2,
   "name": "Cap · jauges et focus",
-  "version": "1.4.0",
+  "version": "1.4.1",
   "description": "Jauges de temps par site et blocage pendant tes sessions de focus. Tout reste sur ton ordinateur.",
   "browser_specific_settings": {
     "gecko": {

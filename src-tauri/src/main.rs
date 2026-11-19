@@ -5,6 +5,7 @@
 
 mod dossier;
 mod gauge;
+mod perf;
 
 use gauge::{GaugeCfg, GaugeState};
 use serde::{Deserialize, Serialize};
@@ -586,63 +587,134 @@ impl Data {
 
 // ================================================================ fenêtres
 
-/// Applique le mode : "full" (fenêtre complète), "mini" (bulle) ou "closed".
-/// La bulle prend la place du coin haut droit de la fenêtre, et inversement : on ne la perd jamais de vue.
-/// À appeler sans tenir le verrou principal.
-fn apply_mode(app: &AppHandle, mode: &str, focus: bool) {
-    let (Some(main), Some(mini)) = (app.get_webview_window("main"), app.get_webview_window("mini")) else { return };
-    let sc = main.scale_factor().unwrap_or(1.0);
-    let px = |v: f64| (v * sc).round() as i32;
-    let (mw, mh) = main.outer_size().map(|s| (s.width as i32, s.height as i32)).unwrap_or((px(400.0), px(604.0)));
-    let (bw, _bh) = mini.outer_size().map(|s| (s.width as i32, s.height as i32)).unwrap_or((px(250.0), px(56.0)));
-    // Marges transparentes : carte à 10 px du bord de la fenêtre, bulle à 6 px.
-    let (dx, dy) = (px(4.0), px(4.0));
-    let saved_main = POS.lock().ok().and_then(|p| p[0]);
-    let main_pos = || -> (i32, i32) {
-        if main.is_visible().unwrap_or(false) {
-            if let Ok(p) = main.outer_position() {
-                return (p.x, p.y);
-            }
-        }
-        match saved_main {
-            Some([x, y]) => (x, y),
-            None => {
-                let (ax, ay, aw, ah, s) = work_area(&main);
-                (ax + aw - mw - (14.0 * s) as i32, ay + ah - mh - (14.0 * s) as i32)
-            }
-        }
+// Fenêtres créées à la demande et détruites quand elles disparaissent :
+// une fenêtre cachée garderait son moteur d'affichage en mémoire.
+const MAIN_SIZE: (f64, f64) = (400.0, 604.0);
+const MINI_SIZE: (f64, f64) = (250.0, 56.0);
+const NUDGE_SIZE: (f64, f64) = (360.0, 150.0);
+const WEBVIEW_ARGS: &str = "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection,Translate,OptimizationHints,MediaRouter,AutofillServerCommunication,SpareRendererForSitePerProcess --renderer-process-limit=1 --disable-background-networking --disable-component-update --disable-sync --disable-default-apps --disable-breakpad --no-first-run --no-pings";
+
+/// Demande d'ouverture du rappel unique, pour une fenêtre pas encore chargée
+static PENDING_QUICK: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+fn monitor_area(app: &AppHandle) -> (i32, i32, i32, i32, f64) {
+    if let Ok(Some(m)) = app.primary_monitor() {
+        let wa = m.work_area();
+        return (wa.position.x, wa.position.y, wa.size.width as i32, wa.size.height as i32, m.scale_factor());
+    }
+    (0, 0, 1920, 1040, 1.0)
+}
+
+/// Crée la fenêtre si elle n'existe pas. À appeler depuis le fil principal (via run_on_main_thread).
+fn ensure_window(app: &AppHandle, label: &str) -> Option<WebviewWindow> {
+    if let Some(w) = app.get_webview_window(label) {
+        return Some(w);
+    }
+    let (url, (w, h), focus) = match label {
+        "main" => ("index.html", MAIN_SIZE, true),
+        "mini" => ("mini.html", MINI_SIZE, false),
+        _ => ("nudge.html", NUDGE_SIZE, false),
     };
+    let win = tauri::WebviewWindowBuilder::new(app, label, tauri::WebviewUrl::App(url.into()))
+        .title("Cap")
+        .inner_size(w, h)
+        .resizable(false)
+        .maximizable(false)
+        .minimizable(false)
+        .decorations(false)
+        .transparent(true)
+        .shadow(false)
+        .always_on_top(true)
+        .skip_taskbar(true)
+        .visible(false)
+        .focused(focus)
+        // Moteur d'affichage au régime : un seul processus de rendu pour toutes les fenêtres,
+        // services d'Edge inutiles coupés. Identique pour toutes les fenêtres (exigence de WebView2).
+        .additional_browser_args(WEBVIEW_ARGS)
+        .build()
+        .ok()?;
+    if label == "main" {
+        let app2 = app.clone();
+        win.on_window_event(move |e| match e {
+            WindowEvent::Moved(p) => {
+                if let Ok(mut pos) = POS.try_lock() {
+                    pos[0] = Some([p.x, p.y]);
+                }
+            }
+            // Alt+F4 : comme le bouton fermer
+            WindowEvent::CloseRequested { api, .. } => {
+                api.prevent_close();
+                let sh = app2.state::<S>();
+                set_mode_inner(&app2, &sh, "closed");
+            }
+            _ => {}
+        });
+    } else {
+        win.on_window_event(|e| {
+            if let WindowEvent::CloseRequested { api, .. } = e {
+                api.prevent_close();
+            }
+        });
+    }
+    Some(win)
+}
+
+fn destroy_window(app: &AppHandle, label: &str) {
+    if let Some(w) = app.get_webview_window(label) {
+        let _ = w.destroy();
+    }
+}
+
+/// Applique le mode : "full" (fenêtre complète), "mini" (bulle) ou "closed" (rien à l'écran).
+/// La bulle prend la place du coin haut droit de la fenêtre, et inversement.
+fn apply_mode(app: &AppHandle, mode: &str, focus: bool) {
+    let (a, m) = (app.clone(), mode.to_string());
+    let _ = app.run_on_main_thread(move || apply_mode_now(&a, &m, focus));
+}
+
+fn apply_mode_now(app: &AppHandle, mode: &str, focus: bool) {
+    let (ax, ay, aw, ah, sc) = monitor_area(app);
+    let px = |v: f64| (v * sc).round() as i32;
+    let (mw, mh, bw) = (px(MAIN_SIZE.0), px(MAIN_SIZE.1), px(MINI_SIZE.0));
+    // Marges transparentes : carte à 10 px du bord de la fenêtre, bulle à 6 px.
+    let d4 = px(4.0);
+    let visible_pos = |label: &str| {
+        app.get_webview_window(label)
+            .filter(|w| w.is_visible().unwrap_or(false))
+            .and_then(|w| w.outer_position().ok())
+            .map(|p| (p.x, p.y))
+    };
+    let main_pos = visible_pos("main")
+        .or_else(|| POS.lock().ok().and_then(|p| p[0]).map(|[x, y]| (x, y)))
+        .unwrap_or((ax + aw - mw - px(14.0), ay + ah - mh - px(14.0)));
     match mode {
         "mini" => {
-            let (mx, my) = main_pos();
-            let _ = mini.set_position(PhysicalPosition::new(mx + mw - bw - dx, my + dy));
-            let _ = main.hide();
-            let _ = mini.show();
+            let (mx, my) = main_pos;
+            if let Some(b) = ensure_window(app, "mini") {
+                let _ = b.set_position(PhysicalPosition::new(mx + mw - bw - d4, my + d4));
+                let _ = b.show();
+            }
+            destroy_window(app, "main");
         }
         "closed" => {
-            let _ = main.hide();
-            let _ = mini.hide();
+            destroy_window(app, "main");
+            destroy_window(app, "mini");
         }
         _ => {
-            let (mut mx, mut my) = if mini.is_visible().unwrap_or(false) {
-                match mini.outer_position() {
-                    Ok(p) => (p.x + bw - mw + dx, p.y - dy),
-                    Err(_) => main_pos(),
-                }
-            } else {
-                main_pos()
+            let (mut mx, mut my) = match visible_pos("mini") {
+                Some((x, y)) => (x + bw - mw + d4, y - d4),
+                None => main_pos,
             };
-            // Toujours entièrement à l'écran
-            let (ax, ay, aw, ah, _) = work_area(&main);
             mx = mx.clamp(ax, (ax + aw - mw).max(ax));
             my = my.clamp(ay, (ay + ah - mh).max(ay));
-            let _ = main.set_position(PhysicalPosition::new(mx, my));
-            let _ = mini.hide();
-            let _ = main.show();
-            let _ = main.unminimize();
-            if focus {
-                let _ = main.set_focus();
+            if let Some(w) = ensure_window(app, "main") {
+                let _ = w.set_position(PhysicalPosition::new(mx, my));
+                let _ = w.show();
+                if focus {
+                    let _ = w.set_focus();
+                }
             }
+            destroy_window(app, "mini");
         }
     }
 }
@@ -660,24 +732,19 @@ fn set_mode_inner(app: &AppHandle, sh: &Shared, mode: &str) {
     apply_mode(app, mode, true);
 }
 
+/// Ouvre Cap sur le rappel unique. Si la fenêtre n'existe pas encore, elle le fera en chargeant.
+fn open_quick(app: &AppHandle, sh: &Shared) {
+    if app.get_webview_window("main").is_some() {
+        set_mode_inner(app, sh, "full");
+        let _ = app.emit("quick", ());
+    } else {
+        PENDING_QUICK.store(true, std::sync::atomic::Ordering::Relaxed);
+        set_mode_inner(app, sh, "full");
+    }
+}
+
 fn current_mode(sh: &Shared) -> String {
     sh.d.lock().unwrap().settings.mode.clone()
-}
-
-fn work_area(w: &WebviewWindow) -> (i32, i32, i32, i32, f64) {
-    if let Ok(Some(m)) = w.primary_monitor() {
-        let wa = m.work_area();
-        return (wa.position.x, wa.position.y, wa.size.width as i32, wa.size.height as i32, m.scale_factor());
-    }
-    (0, 0, 1920, 1040, 1.0)
-}
-
-fn place_bottom_right(w: &WebviewWindow) {
-    let (ax, ay, aw, ah, sc) = work_area(w);
-    if let Ok(sz) = w.outer_size() {
-        let m = (14.0 * sc) as i32;
-        let _ = w.set_position(PhysicalPosition::new(ax + aw - sz.width as i32 - m, ay + ah - sz.height as i32 - m));
-    }
 }
 
 fn fmt_left(ms: u64) -> String {
@@ -788,18 +855,26 @@ fn is_default_label(id: &str, label: &str) -> bool {
     g.as_ref().map_or(false, |l| l.all.values().any(|d| d.get(&key).map_or(false, |v| v == label)))
 }
 
+/// Affiche la notification. Une fenêtre neuve lit elle-même la notification en cours (get_nudge).
 fn present_nudge(app: &AppHandle, n: &Nudge) {
-    if let Some(w) = app.get_webview_window("nudge") {
-        place_bottom_right(&w);
-        let _ = app.emit_to("nudge", "nudge", n);
-        let _ = w.show();
-    }
+    let (a, n) = (app.clone(), n.clone());
+    let _ = app.run_on_main_thread(move || {
+        let existed = a.get_webview_window("nudge").is_some();
+        if let Some(w) = ensure_window(&a, "nudge") {
+            let (ax, ay, aw, ah, sc) = monitor_area(&a);
+            let px = |v: f64| (v * sc).round() as i32;
+            let _ = w.set_position(PhysicalPosition::new(ax + aw - px(NUDGE_SIZE.0) - px(14.0), ay + ah - px(NUDGE_SIZE.1) - px(14.0)));
+            if existed {
+                let _ = a.emit_to("nudge", "nudge", &n);
+            }
+            let _ = w.show();
+        }
+    });
 }
 
 fn hide_nudge_window(app: &AppHandle) {
-    if let Some(w) = app.get_webview_window("nudge") {
-        let _ = w.hide();
-    }
+    let a = app.clone();
+    let _ = app.run_on_main_thread(move || destroy_window(&a, "nudge"));
 }
 
 fn start_session(d: &mut Data, goal: String, minutes: u32) {
@@ -951,7 +1026,9 @@ fn ticker(app: AppHandle, sh: S) {
                 d.save();
             }
             let mini_text = d.settings.mode == "mini";
-            (d.snapshot(), show, hide, TrayInfo::of(&d), mini_text)
+            // Personne n'affiche l'état : on évite de le construire
+            let shown = app.get_webview_window("main").is_some() || app.get_webview_window("mini").is_some();
+            (if shown { d.snapshot() } else { Value::Null }, show, hide, TrayInfo::of(&d), mini_text)
         };
 
         // 2. Interface, verrou relâché.
@@ -961,7 +1038,9 @@ fn ticker(app: AppHandle, sh: S) {
         if let Some(n) = show {
             present_nudge(&app, &n);
         }
-        let _ = app.emit("tick", snap);
+        if !snap.is_null() {
+            let _ = app.emit("tick", snap);
+        }
         apply_tray(&app, tray);
         let _ = mini_text;
     }
@@ -1149,6 +1228,7 @@ fn get_state(app: AppHandle, st: State<S>) -> Value {
     use tauri_plugin_autostart::ManagerExt;
     v["autostart"] = json!(app.autolaunch().is_enabled().unwrap_or(false));
     v["i18n"] = json!(dict());
+    v["quick"] = json!(PENDING_QUICK.swap(false, std::sync::atomic::Ordering::Relaxed));
     v["langs"] = langs();
     let now = now_ms();
     v["about"] = json!({
@@ -1279,64 +1359,27 @@ fn open_locales_folder(st: State<S>) {
 // ---------------------------------------------------------------- performance
 
 static STARTED: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-static PERF: Mutex<Option<(sysinfo::System, Vec<sysinfo::Pid>, u64)>> = Mutex::new(None);
+static PROBE: Mutex<Option<perf::Probe>> = Mutex::new(None);
 
-/// Ce que Cap coûte à la machine : Cap et ses processus WebView2.
+/// Ce que Cap coûte à la machine : Cap et ses processus WebView2. Mesuré seulement quand l'onglet est ouvert.
 #[tauri::command]
-fn get_perf(st: State<S>) -> Value {
-    use sysinfo::{Pid, ProcessesToUpdate, System};
-    let me = Pid::from_u32(std::process::id());
-    let now = now_ms();
-    let mut g = PERF.lock().unwrap();
-    let (sys, tree, at) = g.get_or_insert_with(|| (System::new(), vec![], 0));
-    if now.saturating_sub(*at) > 10_000 || tree.is_empty() {
-        // Toutes les 10 s : on retrouve les processus enfants (moteur d'affichage)
-        sys.refresh_processes(ProcessesToUpdate::All, true);
-        let mut t = vec![me];
-        loop {
-            let add: Vec<Pid> = sys
-                .processes()
-                .iter()
-                .filter(|(pid, p)| !t.contains(pid) && p.parent().map_or(false, |pp| t.contains(&pp)))
-                .map(|(pid, _)| *pid)
-                .collect();
-            if add.is_empty() {
-                break;
-            }
-            t.extend(add);
-        }
-        *tree = t;
-        *at = now;
-    } else {
-        sys.refresh_processes(ProcessesToUpdate::Some(tree), true);
-    }
-    let cores = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(1) as f32;
-    let (mut cpu, mut mem, mut n, mut cap_mem, mut cap_cpu) = (0f32, 0u64, 0usize, 0u64, 0f32);
-    for pid in tree.iter() {
-        if let Some(p) = sys.process(*pid) {
-            cpu += p.cpu_usage();
-            mem += p.memory();
-            n += 1;
-            if *pid == me {
-                cap_mem = p.memory();
-                cap_cpu = p.cpu_usage();
-            }
-        }
-    }
-    drop(g);
+fn get_perf(app: AppHandle, st: State<S>) -> Value {
+    let p = PROBE.lock().unwrap().get_or_insert_with(perf::Probe::new).sample();
     let d = st.d.lock().unwrap();
     let size = |p: &PathBuf| std::fs::metadata(p).map(|m| m.len()).unwrap_or(0);
+    let windows: Vec<&str> = ["main", "mini", "nudge"].into_iter().filter(|l| app.get_webview_window(l).is_some()).collect();
     json!({
-        "cpu": cpu / cores,
-        "cap_cpu": cap_cpu / cores,
-        "mem": mem,
-        "cap_mem": cap_mem,
-        "procs": n,
-        "cores": cores,
-        "uptime": now.saturating_sub(STARTED.load(std::sync::atomic::Ordering::Relaxed)),
+        "cpu": p.cpu,
+        "cap_cpu": p.cap_cpu,
+        "mem": p.private,
+        "cap_mem": p.cap_private,
+        "working": p.working,
+        "procs": p.procs,
+        "windows": windows,
+        "cores": std::thread::available_parallelism().map(|n| n.get()).unwrap_or(1),
+        "uptime": now_ms().saturating_sub(STARTED.load(std::sync::atomic::Ordering::Relaxed)),
         "data": size(&d.path) + size(&d.stats_path),
         "events": d.stats.events.len(),
-        "sc_ok": SC_OK.lock().map(|g| *g).unwrap_or([false, false]),
     })
 }
 
@@ -1874,8 +1917,7 @@ fn main() {
                             let quick = sh.d.lock().unwrap().settings.sc_quick.clone();
                             let is_quick = quick.parse::<tauri_plugin_global_shortcut::Shortcut>().map_or(false, |q| q.id() == sc.id());
                             if is_quick {
-                                set_mode_inner(app, &sh, "full");
-                                let _ = app.emit("quick", ());
+                                open_quick(app, &sh);
                             } else {
                                 let next = if current_mode(&sh) == "full" { "mini" } else { "full" };
                                 set_mode_inner(app, &sh, next);
@@ -1912,10 +1954,7 @@ fn main() {
                     match ev.id().as_ref() {
                         "open" => set_mode_inner(app, &sh, "full"),
                         "mini" => set_mode_inner(app, &sh, "mini"),
-                        "quickrem" => {
-                            set_mode_inner(app, &sh, "full");
-                            let _ = app.emit("quick", ());
-                        }
+                        "quickrem" => open_quick(app, &sh),
                         "quick" => {
                             let mut d = sh.d.lock().unwrap();
                             let now = now_ms();
@@ -1962,26 +2001,6 @@ fn main() {
                 .build(app)?;
             let labels = vec![(open.clone(), "tray.open"), (mini.clone(), "tray.mini"), (quickrem.clone(), "tray.quickrem"), (stop_i.clone(), "tray.stop"), (quit_i.clone(), "tray.quit")];
             app.manage(TrayItems { tray, quick, stop: stop_i, labels, last: Mutex::new(String::new()) });
-
-            // Retenir où l'utilisateur place chaque fenêtre
-            for (label, idx) in [("main", 0usize), ("mini", 1usize)] {
-                if let Some(w) = app.get_webview_window(label) {
-                    let w2 = w.clone();
-                    w.on_window_event(move |e| match e {
-                        WindowEvent::Moved(p) => {
-                            if let Ok(mut pos) = POS.try_lock() {
-                                pos[idx] = Some([p.x, p.y]);
-                            }
-                        }
-                        // Alt+F4 : on cache au lieu de détruire la fenêtre
-                        WindowEvent::CloseRequested { api, .. } => {
-                            api.prevent_close();
-                            let _ = w2.hide();
-                        }
-                        _ => {}
-                    });
-                }
-            }
 
             let mode = {
                 let d = sh.d.lock().unwrap();
