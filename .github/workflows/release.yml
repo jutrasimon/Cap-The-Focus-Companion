@@ -1,7 +1,9 @@
-# Publier une version : python scripts/bump.py 1.4.0, commit, puis git tag v1.4.0 && git push --tags
+# Publier une version : python scripts/bump.py 1.4.0, puis un commit dont le message commence par « v1.4.0 », poussé sur main.
+# L'action crée elle-même l'étiquette v1.4.0 et la version GitHub.
 name: Release
 on:
   push:
+    branches: [main]
     tags: ["v*"]
   workflow_dispatch:
 
@@ -10,6 +12,7 @@ permissions:
 
 jobs:
   windows:
+    if: github.event_name != 'push' || startsWith(github.ref, 'refs/tags/') || startsWith(github.event.head_commit.message, 'v')
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -42,15 +45,17 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
         with:
-          tagName: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
-          releaseName: "Cap ${{ github.ref_name }}"
+          tagName: v__VERSION__
+          releaseName: "Cap v__VERSION__"
           releaseBody: "Télécharge `Cap_*_x64-setup.exe` pour installer Cap. Les extensions sont dans les fichiers `cap-extension-*.zip`."
           releaseDraft: false
           prerelease: false
           includeUpdaterJson: true
 
       - name: Joindre les extensions
-        if: github.ref_type == 'tag'
+        shell: pwsh
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release upload ${{ github.ref_name }} dist/cap-extension-chromium.zip dist/cap-extension-firefox.zip --clobber
+        run: |
+          $v = (Get-Content src-tauri/tauri.conf.json | ConvertFrom-Json).version
+          gh release upload "v$v" dist/cap-extension-chromium.zip dist/cap-extension-firefox.zip --clobber

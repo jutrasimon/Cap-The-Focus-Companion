@@ -37,10 +37,11 @@ npm run tauri dev
 
 ```
 python scripts/bump.py 1.4.0
-git commit -am "v1.4.0"
-git tag v1.4.0
-git push && git push --tags
+git commit -am "v1.4.0 : ce qui change"
+git push
 ```
+
+Un commit sur `main` dont le message commence par `v` + numéro de version déclenche la publication.
 
 GitHub Actions compile l'installateur, le signe pour la mise à jour automatique et publie la version. Le secret `TAURI_SIGNING_PRIVATE_KEY` doit être défini dans les réglages du dépôt.
 
