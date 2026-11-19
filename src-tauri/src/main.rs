@@ -186,6 +186,8 @@ struct Settings {
     lang: String,
     /// Rappels ratés de suite avant la mise en pause
     misses_to_pause: u32,
+    /// Mode léger : sans accélération graphique, un seul processus d'affichage
+    light: bool,
 }
 
 impl Default for Settings {
@@ -212,6 +214,7 @@ impl Default for Settings {
             sc_quick: "ctrl+alt+r".into(),
             lang: "auto".into(),
             misses_to_pause: 2,
+            light: true,
         }
     }
 }
@@ -631,6 +634,9 @@ const STACK_W: f64 = 300.0;
 const STACK_ROW: f64 = 46.0;
 const STACK_MAX: usize = 5;
 const WEBVIEW_ARGS: &str = "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection,Translate,OptimizationHints,MediaRouter,AutofillServerCommunication,SpareRendererForSitePerProcess --disable-background-networking --disable-component-update --disable-sync --disable-default-apps --disable-breakpad --no-first-run --no-pings --js-flags=--lite-mode";
+/// Ajouté en mode léger : rendu logiciel (plus de processus GPU) et un seul processus d'affichage.
+const LIGHT_ARGS: &str = " --disable-gpu --disable-gpu-compositing --renderer-process-limit=1";
+static ARGS: std::sync::OnceLock<String> = std::sync::OnceLock::new();
 
 /// Demande d'ouverture du rappel unique, pour une fenêtre pas encore chargée
 static PENDING_QUICK: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
@@ -669,7 +675,7 @@ fn ensure_window(app: &AppHandle, label: &str) -> Option<WebviewWindow> {
         .focused(focus)
         // Moteur d'affichage au régime : services d'Edge inutiles coupés.
         // Identique pour toutes les fenêtres (exigence de WebView2).
-        .additional_browser_args(WEBVIEW_ARGS)
+        .additional_browser_args(ARGS.get().map(|s| s.as_str()).unwrap_or(WEBVIEW_ARGS))
         .build()
         .ok()?;
     if label == "main" {
@@ -1565,6 +1571,7 @@ async fn install_update(app: AppHandle) -> Result<(), String> {
     use tauri_plugin_updater::UpdaterExt;
     let update = app.updater().map_err(|e| e.to_string())?.check().await.map_err(|e| e.to_string())?;
     let Some(update) = update else { return Err(tr("err.upToDate")) };
+    clear_light_guard(&app.state::<S>());
     update.download_and_install(|_, _| {}, || {}).await.map_err(|e| e.to_string())?;
     app.restart();
 }
@@ -1994,8 +2001,22 @@ fn open_extension_folder(app: AppHandle) -> bool {
 }
 
 #[tauri::command]
-fn quit(app: AppHandle) {
+fn quit(app: AppHandle, st: State<S>) {
+    clear_light_guard(&st);
     app.exit(0);
+}
+
+fn clear_light_guard(st: &Shared) {
+    if let Ok(d) = st.d.lock() {
+        let _ = std::fs::remove_file(d.path.with_file_name("light.try"));
+    }
+}
+
+/// Relance Cap (changement du mode léger : réglage du moteur fixé au démarrage)
+#[tauri::command]
+fn restart(app: AppHandle, st: State<S>) {
+    clear_light_guard(&st);
+    app.restart();
 }
 
 async fn tokio_sleep(secs: u64) {
@@ -2067,7 +2088,8 @@ fn main() {
             set_lang,
             import_locale,
             open_locales_folder,
-            quit
+            quit,
+            restart,
         ])
         .setup(move |app| {
             STARTED.store(now_ms(), std::sync::atomic::Ordering::Relaxed);
@@ -2206,7 +2228,10 @@ fn main() {
                             }
                             commit(app, &sh, &mut d);
                         }
-                        "quit" => app.exit(0),
+                        "quit" => {
+                            clear_light_guard(&sh);
+                            app.exit(0);
+                        }
                         _ => {}
                     }
                 })
@@ -2226,6 +2251,28 @@ fn main() {
                 apply_tray(app.handle(), TrayInfo::of(&d));
                 if first_run { "full".to_string() } else { d.settings.mode.clone() }
             };
+            // Mode léger, avec filet : si Cap s'est arrêté dans la minute après un démarrage léger,
+            // le mode léger est coupé pour de bon.
+            {
+                let mut d = sh.d.lock().unwrap();
+                let guard = d.path.with_file_name("light.try");
+                if guard.exists() {
+                    let _ = std::fs::remove_file(&guard);
+                    if d.settings.light {
+                        d.settings.light = false;
+                        d.save();
+                    }
+                }
+                let light = d.settings.light;
+                let _ = ARGS.set(if light { format!("{WEBVIEW_ARGS}{LIGHT_ARGS}") } else { WEBVIEW_ARGS.to_string() });
+                if light {
+                    let _ = std::fs::write(&guard, b"1");
+                    thread::spawn(move || {
+                        thread::sleep(Duration::from_secs(60));
+                        let _ = std::fs::remove_file(&guard);
+                    });
+                }
+            }
             // Fenêtre principale et bulle créées une fois au démarrage, comme en 1.4.0 (stable)
             ensure_window(app.handle(), "main");
             ensure_window(app.handle(), "mini");
