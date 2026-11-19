@@ -454,3 +454,7 @@ main::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; hei
 
 #siteMode.accent { color: var(--accent, #ff8a4d); }
 .site-n .ftag { display: inline-flex; align-items: center; gap: 4px; font-weight: 500; color: var(--accent, #ff8a4d); }
+
+/* Pause générale */
+#awayBtn.away { color: var(--accent, #ff8a4d); background: color-mix(in srgb, var(--accent, #ff8a4d) 16%, transparent); }
+body.is-away .view, body.is-away #tabs, body.is-away .fab-wrap { opacity: .35; pointer-events: none; filter: saturate(.4); transition: opacity .2s; }

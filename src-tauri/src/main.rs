@@ -188,6 +188,10 @@ struct Settings {
     misses_to_pause: u32,
     /// Mode léger : sans accélération graphique, un seul processus d'affichage
     light: bool,
+    /// Pause générale (je m'absente) : depuis quand
+    away_since: Option<u64>,
+    /// Le focus a été mis en pause par la pause générale
+    away_focus: bool,
 }
 
 impl Default for Settings {
@@ -215,6 +219,8 @@ impl Default for Settings {
             lang: "auto".into(),
             misses_to_pause: 2,
             light: true,
+            away_since: None,
+            away_focus: false,
         }
     }
 }
@@ -379,6 +385,7 @@ struct TrayItems {
     tray: TrayIcon<Wry>,
     quick: MenuItem<Wry>,
     stop: MenuItem<Wry>,
+    away: MenuItem<Wry>,
     labels: Vec<(MenuItem<Wry>, &'static str)>,
     last: Mutex<String>,
 }
@@ -399,7 +406,49 @@ impl Data {
     /// Rappels manqués à montrer sur le côté : aucun quand les rappels sont en pause
     /// (ils restent réclamables dans l'onglet Rappels).
     fn stack(&self) -> Vec<Pending> {
-        if self.settings.reminders_on { self.pending.clone() } else { vec![] }
+        if self.settings.reminders_on && self.settings.away_since.is_none() { self.pending.clone() } else { vec![] }
+    }
+
+    /// Pause générale : plus de rappels, focus en pause, dossiers figés.
+    /// Renvoie vrai si un rappel affiché doit disparaître.
+    fn set_away(&mut self, on: bool) -> bool {
+        let now = now_ms();
+        let mut hide = false;
+        match (on, self.settings.away_since) {
+            (true, None) => {
+                self.settings.away_since = Some(now);
+                hide = self.nudge.take().is_some();
+                self.settings.away_focus = false;
+                if let Some(s) = self.session.as_mut() {
+                    if !s.paused() {
+                        s.paused_left = Some(s.left(now));
+                        s.ends_at = None;
+                        self.settings.away_focus = true;
+                    }
+                }
+                self.missed_streak = 0;
+                self.due.clear();
+                self.log("away_on", "", 0.0);
+            }
+            (false, Some(since)) => {
+                let dur = now.saturating_sub(since);
+                self.settings.away_since = None;
+                for x in self.dossiers.iter_mut().filter(|x| x.state == DState::Open) {
+                    x.last_active = x.last_active.saturating_add(dur).min(now);
+                }
+                if std::mem::take(&mut self.settings.away_focus) {
+                    if let Some(s) = self.session.as_mut() {
+                        if let Some(p) = s.paused_left.take() {
+                            s.ends_at = Some(now + p);
+                        }
+                    }
+                }
+                self.due.clear();
+                self.log("away_off", "", (dur as f64 / 60_000.0).round());
+            }
+            _ => {}
+        }
+        hide
     }
 
     fn save(&mut self) {
@@ -874,6 +923,7 @@ struct TrayInfo {
     quick: String,
     has_session: bool,
     icon: u8,
+    away: bool,
 }
 
 impl TrayInfo {
@@ -887,18 +937,20 @@ impl TrayInfo {
             }
             None => ("Cap".into(), 0),
         };
+        let away = d.settings.away_since.is_some();
+        let (tip, icon) = if away { (format!("Cap · {}", tr("tray.awayOn")), 3) } else { (tip, icon) };
         let quick = match &d.session {
             None => trn("tray.focus", d.settings.minutes),
             Some(s) if s.paused() => tr("tray.resume"),
             Some(_) => tr("tray.pause"),
         };
-        TrayInfo { tip, quick, has_session: d.session.is_some(), icon }
+        TrayInfo { tip, quick, has_session: d.session.is_some(), icon, away }
     }
 }
 
 fn apply_tray(app: &AppHandle, i: TrayInfo) {
     let Some(t) = app.try_state::<TrayItems>() else { return };
-    let key = format!("{}|{}|{}", i.tip, i.quick, i.icon);
+    let key = format!("{}|{}|{}|{}", i.tip, i.quick, i.away, i.icon);
     let mut last = t.last.lock().unwrap();
     if *last == key {
         return;
@@ -909,6 +961,7 @@ fn apply_tray(app: &AppHandle, i: TrayInfo) {
     let _ = t.tray.set_tooltip(Some(i.tip));
     let _ = t.quick.set_text(i.quick);
     let _ = t.stop.set_enabled(i.has_session);
+    let _ = t.away.set_text(tr(if i.away { "tray.back" } else { "tray.away" }));
     if icon_changed {
         let bytes: &[u8] = match i.icon {
             1 => include_bytes!("../icons/tray-focus.png"),
@@ -1095,15 +1148,16 @@ fn ticker(app: AppHandle, sh: S) {
                     changed = true;
                 }
             }
+            let away = d.settings.away_since.is_some();
             // Un rappel unique en attente depuis 12 h est perdu
             let stale: Vec<String> = d.pending.iter().filter(|p| p.once.is_some() && now.saturating_sub(p.at) > 12 * 3_600_000).map(|p| p.rid.clone()).collect();
-            for rid in stale {
+            for rid in stale.into_iter().filter(|_| !away) {
                 d.lose_pending(&rid);
                 changed = true;
             }
 
             // Rappels uniques : sonnent à l'heure dite, puis s'effacent
-            if d.nudge.is_none() && show.is_none() {
+            if d.nudge.is_none() && show.is_none() && !away {
                 if let Some(i) = d.settings.reminders.iter().position(|r| r.once_at.map_or(false, |t| t <= now)) {
                     let r = d.settings.reminders.remove(i);
                     let n = reminder_nudge(&r, true);
@@ -1113,7 +1167,7 @@ fn ticker(app: AppHandle, sh: S) {
             }
 
             // Rappels récurrents
-            if d.settings.reminders_on {
+            if d.settings.reminders_on && !away {
                 let list: Vec<Reminder> = d.settings.reminders.iter().filter(|r| r.once_at.is_none() && r.enabled).cloned().collect();
                 for r in list.iter() {
                     let every = r.every_min.max(1) as u64 * 60_000;
@@ -1170,7 +1224,7 @@ fn ticker(app: AppHandle, sh: S) {
             let mut lost = vec![];
             for x in d.dossiers.iter_mut() {
                 let decay = x.decay.unwrap_or(decay_default);
-                if x.state == DState::Open && dossier::level(x.last_active, now, decay) <= 0.0 {
+                if !away && x.state == DState::Open && dossier::level(x.last_active, now, decay) <= 0.0 {
                     x.state = DState::Lost;
                     x.ended = Some(now);
                     lost.push(x.title.clone());
@@ -1789,18 +1843,31 @@ fn reminders_set_on(app: AppHandle, st: State<S>, on: bool) {
     let mut d = st.d.lock().unwrap();
     d.settings.reminders_on = on;
     d.missed_streak = 0;
-    if on {
-        let ids = std::mem::take(&mut d.settings.paused_ids);
-        for r in d.settings.reminders.iter_mut().filter(|r| ids.contains(&r.id)) {
-            r.enabled = true;
-        }
-    }
+    // Réactiver chaque rappel reste un choix manuel
+    d.settings.paused_ids.clear();
     d.due.clear();
     d.log(if on { "rem_on" } else { "rem_off" }, "", 0.0);
     commit(&app, &st, &mut d);
     let p = d.stack();
     drop(d);
     present_stack(&app, p);
+}
+
+fn set_away_inner(app: &AppHandle, st: &Shared, on: bool) {
+    let mut d = st.d.lock().unwrap();
+    let hide = d.set_away(on);
+    commit(app, st, &mut d);
+    let p = d.stack();
+    drop(d);
+    if hide {
+        retire_window(app, "nudge");
+    }
+    present_stack(app, p);
+}
+
+#[tauri::command]
+fn set_away(app: AppHandle, st: State<S>, on: bool) {
+    set_away_inner(&app, &st, on);
 }
 
 #[tauri::command]
@@ -2091,6 +2158,7 @@ fn main() {
             open_locales_folder,
             quit,
             restart,
+            set_away,
         ])
         .setup(move |app| {
             STARTED.store(now_ms(), std::sync::atomic::Ordering::Relaxed);
@@ -2182,9 +2250,10 @@ fn main() {
             let quick = MenuItem::with_id(app, "quick", "Focus", true, None::<&str>)?;
             let stop_i = MenuItem::with_id(app, "stop", tr("tray.stop"), false, None::<&str>)?;
             let quit_i = MenuItem::with_id(app, "quit", tr("tray.quit"), true, None::<&str>)?;
+            let away_i = MenuItem::with_id(app, "away", tr("tray.away"), true, None::<&str>)?;
             let menu = Menu::with_items(
                 app,
-                &[&open, &mini, &PredefinedMenuItem::separator(app)?, &quickrem, &quick, &stop_i, &PredefinedMenuItem::separator(app)?, &quit_i],
+                &[&open, &mini, &PredefinedMenuItem::separator(app)?, &quickrem, &quick, &stop_i, &PredefinedMenuItem::separator(app)?, &away_i, &quit_i],
             )?;
             let tray = TrayIconBuilder::with_id("cap")
                 .icon(Image::from_bytes(include_bytes!("../icons/tray.png"))?)
@@ -2197,6 +2266,10 @@ fn main() {
                         "open" => set_mode_inner(app, &sh, "full"),
                         "mini" => set_mode_inner(app, &sh, "mini"),
                         "quickrem" => open_quick(app, &sh),
+                        "away" => {
+                            let on = sh.d.lock().unwrap().settings.away_since.is_none();
+                            set_away_inner(app, &sh, on);
+                        }
                         "quick" => {
                             let mut d = sh.d.lock().unwrap();
                             let now = now_ms();
@@ -2245,7 +2318,7 @@ fn main() {
                 })
                 .build(app)?;
             let labels = vec![(open.clone(), "tray.open"), (mini.clone(), "tray.mini"), (quickrem.clone(), "tray.quickrem"), (stop_i.clone(), "tray.stop"), (quit_i.clone(), "tray.quit")];
-            app.manage(TrayItems { tray, quick, stop: stop_i, labels, last: Mutex::new(String::new()) });
+            app.manage(TrayItems { tray, quick, stop: stop_i, away: away_i, labels, last: Mutex::new(String::new()) });
 
             let mode = {
                 let d = sh.d.lock().unwrap();

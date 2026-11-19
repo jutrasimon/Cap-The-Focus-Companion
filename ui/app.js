@@ -107,6 +107,10 @@ function showTab(name) {
 function render() {
   if (!S) return;
   $("tabRappels").classList.toggle("alert", !S.settings.reminders_on);
+  const away = S.settings.away_since != null;
+  document.body.classList.toggle("is-away", away);
+  $("awayBtn").classList.toggle("away", away);
+  $("awayBtn").dataset.tip = t(away ? "hdr.back" : "hdr.away");
   if (tab === "focus") renderFocus();
   if (tab === "dossiers") renderDossiers();
   if (tab === "jauges") renderSites();
@@ -547,6 +551,8 @@ function bind() {
   $("closeBtn").onclick = () => invoke("set_mode", { mode: "closed" });
   $("gearBtn").onclick = () => showTab(tab === "settings" ? lastTab : "settings");
   $("perfBtn").innerHTML = I.activity;
+  $("awayBtn").innerHTML = I.coffee;
+  $("awayBtn").onclick = () => invoke("set_away", { on: S.settings.away_since == null });
   $("perfBtn").onclick = () => showTab(tab === "perf" ? lastTab : "perf");
   $("tabs").onclick = (e) => { const b = e.target.closest("button"); if (b) showTab(b.dataset.tab); };
 

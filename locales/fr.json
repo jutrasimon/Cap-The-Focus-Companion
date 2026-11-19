@@ -265,5 +265,10 @@
   "site.focusTag": "Focus",
   "site.focusTip": "Bloqué seulement pendant le focus",
   "set.light": "Mode léger",
-  "set.lightTip": "Moins de mémoire : sans accélération graphique. Cap redémarre."
+  "set.lightTip": "Moins de mémoire : sans accélération graphique. Cap redémarre.",
+  "hdr.away": "Pause : je m'absente (rappels, focus et dossiers en pause)",
+  "hdr.back": "En pause. Cliquer pour reprendre",
+  "tray.away": "Pause générale",
+  "tray.back": "Reprendre",
+  "tray.awayOn": "en pause"
 }

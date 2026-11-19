@@ -265,5 +265,10 @@
   "site.focusTag": "Focus",
   "site.focusTip": "Blocked only during focus",
   "set.light": "Light mode",
-  "set.lightTip": "Less memory: no graphics acceleration. Cap restarts."
+  "set.lightTip": "Less memory: no graphics acceleration. Cap restarts.",
+  "hdr.away": "Pause: I'm away (reminders, focus and folders on hold)",
+  "hdr.back": "Paused. Click to resume",
+  "tray.away": "Pause everything",
+  "tray.back": "Resume",
+  "tray.awayOn": "paused"
 }

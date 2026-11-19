@@ -1,6 +1,6 @@
 [package]
 name = "cap"
-version = "1.7.2"
+version = "1.8.0"
 description = "Cap : sessions de focus, blocage de sites et rappels doux"
 edition = "2021"
 
