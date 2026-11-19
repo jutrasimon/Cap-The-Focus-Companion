@@ -624,7 +624,7 @@ const NUDGE_SIZE: (f64, f64) = (360.0, 150.0);
 const STACK_W: f64 = 300.0;
 const STACK_ROW: f64 = 46.0;
 const STACK_MAX: usize = 5;
-const WEBVIEW_ARGS: &str = "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection,Translate,OptimizationHints,MediaRouter,AutofillServerCommunication,SpareRendererForSitePerProcess --renderer-process-limit=1 --disable-background-networking --disable-component-update --disable-sync --disable-default-apps --disable-breakpad --no-first-run --no-pings";
+const WEBVIEW_ARGS: &str = "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection,Translate,OptimizationHints,MediaRouter,AutofillServerCommunication,SpareRendererForSitePerProcess --disable-background-networking --disable-component-update --disable-sync --disable-default-apps --disable-breakpad --no-first-run --no-pings";
 
 /// Demande d'ouverture du rappel unique, pour une fenêtre pas encore chargée
 static PENDING_QUICK: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
@@ -661,8 +661,8 @@ fn ensure_window(app: &AppHandle, label: &str) -> Option<WebviewWindow> {
         .skip_taskbar(true)
         .visible(false)
         .focused(focus)
-        // Moteur d'affichage au régime : un seul processus de rendu pour toutes les fenêtres,
-        // services d'Edge inutiles coupés. Identique pour toutes les fenêtres (exigence de WebView2).
+        // Moteur d'affichage au régime : services d'Edge inutiles coupés.
+        // Identique pour toutes les fenêtres (exigence de WebView2).
         .additional_browser_args(WEBVIEW_ARGS)
         .build()
         .ok()?;
@@ -692,9 +692,28 @@ fn ensure_window(app: &AppHandle, label: &str) -> Option<WebviewWindow> {
     Some(win)
 }
 
-fn destroy_window(app: &AppHandle, label: &str) {
+/// Cache tout de suite, détruit 3 s plus tard si la fenêtre est toujours cachée.
+/// Détruire une fenêtre pendant qu'elle traite encore un appel la fait planter.
+fn retire_window(app: &AppHandle, label: &str) {
+    let Some(w) = app.get_webview_window(label) else { return };
+    let _ = w.hide();
+    let (a, l) = (app.clone(), label.to_string());
+    thread::spawn(move || {
+        thread::sleep(Duration::from_secs(3));
+        let a2 = a.clone();
+        let _ = a.run_on_main_thread(move || {
+            if let Some(w) = a2.get_webview_window(&l) {
+                if !w.is_visible().unwrap_or(true) {
+                    let _ = w.destroy();
+                }
+            }
+        });
+    });
+}
+
+fn hide_window(app: &AppHandle, label: &str) {
     if let Some(w) = app.get_webview_window(label) {
-        let _ = w.destroy();
+        let _ = w.hide();
     }
 }
 
@@ -727,11 +746,11 @@ fn apply_mode_now(app: &AppHandle, mode: &str, focus: bool) {
                 let _ = b.set_position(PhysicalPosition::new(mx + mw - bw - d4, my + d4));
                 let _ = b.show();
             }
-            destroy_window(app, "main");
+            hide_window(app, "main");
         }
         "closed" => {
-            destroy_window(app, "main");
-            destroy_window(app, "mini");
+            hide_window(app, "main");
+            hide_window(app, "mini");
         }
         _ => {
             let (mut mx, mut my) = match visible_pos("mini") {
@@ -747,7 +766,7 @@ fn apply_mode_now(app: &AppHandle, mode: &str, focus: bool) {
                     let _ = w.set_focus();
                 }
             }
-            destroy_window(app, "mini");
+            hide_window(app, "mini");
         }
     }
 }
@@ -910,7 +929,7 @@ fn present_stack(app: &AppHandle, pending: Vec<Pending>) {
     let a = app.clone();
     let _ = app.run_on_main_thread(move || {
         if pending.is_empty() {
-            destroy_window(&a, "stack");
+            retire_window(&a, "stack");
             return;
         }
         let existed = a.get_webview_window("stack").is_some();
@@ -931,7 +950,7 @@ fn present_stack(app: &AppHandle, pending: Vec<Pending>) {
 
 fn hide_nudge_window(app: &AppHandle) {
     let a = app.clone();
-    let _ = app.run_on_main_thread(move || destroy_window(&a, "nudge"));
+    let _ = app.run_on_main_thread(move || retire_window(&a, "nudge"));
 }
 
 fn start_session(d: &mut Data, goal: String, minutes: u32) {
@@ -1097,7 +1116,7 @@ fn ticker(app: AppHandle, sh: S) {
             let mini_text = d.settings.mode == "mini";
             let stack = if changed || d.pending.len() != pending_before { Some(d.pending.clone()) } else { None };
             // Personne n'affiche l'état : on évite de le construire
-            let shown = app.get_webview_window("main").is_some() || app.get_webview_window("mini").is_some();
+            let shown = d.settings.mode != "closed";
             (if shown { d.snapshot() } else { Value::Null }, show, hide, TrayInfo::of(&d), (mini_text, stack))
         };
 
@@ -1922,6 +1941,16 @@ async fn tokio_sleep(secs: u64) {
 // ================================================================ démarrage
 
 fn main() {
+    // Journal de plantage dans le dossier de données, pour comprendre ce qui s'est passé
+    std::panic::set_hook(Box::new(|info| {
+        let dir = std::env::var("APPDATA").map(PathBuf::from).unwrap_or_else(|_| PathBuf::from(".")).join("app.cap.focus");
+        let _ = std::fs::create_dir_all(&dir);
+        let line = format!("{} · {} · {}\n", now_ms(), env!("CARGO_PKG_VERSION"), info); // i18n-ok : journal développeur
+        use std::io::Write as _;
+        if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(dir.join("crash.log")) {
+            let _ = f.write_all(line.as_bytes());
+        }
+    }));
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             let sh = app.state::<S>();
@@ -2126,6 +2155,9 @@ fn main() {
                 apply_tray(app.handle(), TrayInfo::of(&d));
                 if first_run { "full".to_string() } else { d.settings.mode.clone() }
             };
+            // Fenêtre principale et bulle créées une fois au démarrage, comme en 1.4.0 (stable)
+            ensure_window(app.handle(), "main");
+            ensure_window(app.handle(), "mini");
             apply_mode(app.handle(), &mode, true);
 
             let (h1, s1) = (app.handle().clone(), sh.clone());

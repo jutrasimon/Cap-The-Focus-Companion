@@ -21,7 +21,8 @@ function applyI18n(root = document) {
   root.querySelectorAll("[data-t-tip]").forEach((el) => { el.dataset.tip = t(el.dataset.tTip); el.removeAttribute("title"); });
   document.documentElement.lang = L["_meta.code"] || "fr";
 }
-let tab = "focus", lastTab = "focus";
+let tab = "dossiers", lastTab = "dossiers";
+let hadSession = false;
 let minutes = 25, primed = false;
 let archOpen = false, archMode = "done", archExpanded = null;
 let openSite = null, openMenu = null, openRem = null;
@@ -129,8 +130,10 @@ function renderFocus() {
   $("minInput").classList.toggle("hidden", !!s);
   $("minUnit").classList.toggle("hidden", !!s);
   $("time").classList.toggle("hidden", !s);
-  $("focusNote").classList.toggle("hidden", !s);
+  // Le texte du focus se saisit avant ou pendant ; il se vide à la fin de la session
   if (s && document.activeElement !== $("focusNote")) $("focusNote").value = s.goal || "";
+  if (!s && hadSession) $("focusNote").value = "";
+  hadSession = !!s;
   if (s) {
     $("time").textContent = fmt(s.left);
     $("ring").style.strokeDashoffset = C * (1 - Math.max(0, Math.min(1, s.left / s.total)));
@@ -151,7 +154,8 @@ function startFocus() {
   const v = parseInt($("minInput").value, 10);
   if (v > 0) minutes = Math.min(600, v);
   $("minInput").blur();
-  invoke("start", { minutes });
+  invoke("start", { minutes, goal: $("focusNote").value.trim() });
+  $("focusNote").blur();
 }
 
 // ---------------------------------------------------- dossiers
@@ -542,7 +546,11 @@ function bind() {
   const fn = $("focusNote");
   const saveNote = () => { if (S.session && fn.value.trim() !== (S.session.goal || "")) invoke("set_goal", { goal: fn.value.trim() }); };
   fn.addEventListener("blur", saveNote);
-  fn.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === "Escape") { e.preventDefault(); e.stopPropagation(); fn.blur(); } });
+  fn.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); fn.blur(); }
+    // Entrée : avant le focus, le lance ; pendant, enregistre
+    if (e.key === "Enter") { e.preventDefault(); e.stopPropagation(); if (S.session) fn.blur(); else startFocus(); }
+  });
   const mi = $("minInput");
   // Au clic, tout le nombre est sélectionné : taper remplace
   let fresh = false;
@@ -923,7 +931,7 @@ async function refresh() {
 }
 
 bind();
-showTab("focus");
+showTab("dossiers");
 refresh();
 T.event.listen("tick", (e) => { const keep = S ? { autostart: S.autostart, about: S.about, langs: S.langs, i18n: S.i18n } : {}; S = Object.assign(e.payload, keep); if (!primed) refresh(); else render(); });
 // La langue du système sert quand le réglage est « Automatique »
