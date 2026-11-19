@@ -451,3 +451,6 @@ main::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; hei
 .icon-btn.solid.sm2 svg { width: 15px; height: 15px; }
 #missRow .stepper { grid-template-columns: 24px 84px 24px; }
 .view.focus-view { z-index: 3; }
+
+#siteMode.accent { color: var(--accent, #ff8a4d); }
+.site-n .ftag { display: inline-flex; align-items: center; gap: 4px; font-weight: 500; color: var(--accent, #ff8a4d); }

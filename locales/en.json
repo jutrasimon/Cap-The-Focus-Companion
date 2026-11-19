@@ -259,5 +259,9 @@
   "ext.retry": "Cap isn't responding. Retry",
   "ext.hint": "Gauges and sessions are set in Cap.",
   "ext.badgeFocus": "Cap · focus in progress",
-  "ext.badgeGauge": "Cap · {s}: {n} min of gauge"
+  "ext.badgeGauge": "Cap · {s}: {n} min of gauge",
+  "site.modeGauge": "With gauge",
+  "site.modeFocus": "Focus only: blocked during focus, no gauge",
+  "site.focusTag": "Focus",
+  "site.focusTip": "Blocked only during focus"
 }

@@ -224,6 +224,14 @@ function renderDossiers() {
 // ---------------------------------------------------- jauges
 const gaugeOf = (site) => (S.gauges || {})[site] || { level: 0, max: 900, locked: false, using: false, cfg: GDEF, off: false, refill_in: 0 };
 
+let addFocusOnly = false;
+function renderSiteMode() {
+  const b = $("siteMode");
+  b.innerHTML = addFocusOnly ? I.timer : I.gauge;
+  b.classList.toggle("accent", addFocusOnly);
+  b.dataset.tip = t(addFocusOnly ? "site.modeFocus" : "site.modeGauge");
+}
+
 function renderSites() {
   const st = S.settings;
   const html = st.sites.map((site, i) => {
@@ -231,13 +239,13 @@ function renderSites() {
     const c = { ...GDEF, ...(st.gauge_cfg || {})[site] };
     const off = st.sites_off.includes(site);
     const pct = Math.max(0, Math.min(100, (100 * g.level) / g.max));
-    const label = off ? "" : !c.enabled ? I.lock : g.locked ? `${I.lock}${t("fmt.min", { n: Math.ceil(g.refill_in / 60) })}` : `${Math.floor(g.level / 60)} / ${t("fmt.min", { n: c.max_min })}`;
+    const label = off ? "" : !c.enabled ? `<b class="ftag" data-tip="${esc(t("site.focusTip"))}">${I.timer}${t("site.focusTag")}</b>` : g.locked ? `${I.lock}${t("fmt.min", { n: Math.ceil(g.refill_in / 60) })}` : `${Math.floor(g.level / 60)} / ${t("fmt.min", { n: c.max_min })}`;
     const body = openSite === site ? `
       <div class="site-b">
-        <i>${I.gauge}</i><span>${t("site.gauge")}</span><div class="switch end ${c.enabled ? "on" : ""}" data-gon="${i}"></div>
-        <i>${I.size}</i><span>${t("site.size")}</span><div class="stepper end"><button data-g="${i}" data-k="max_min" data-d="-5">${I.minus}</button><span>${t("fmt.min", { n: c.max_min })}</span><button data-g="${i}" data-k="max_min" data-d="5">${I.plus}</button></div>
+        <i>${I.gauge}</i><span>${t("site.gauge")}</span><div class="switch end ${c.enabled ? "on" : ""}" data-gon="${i}" data-tip="${esc(t(c.enabled ? "site.modeGauge" : "site.modeFocus"))}"></div>
+        ${c.enabled ? `<i>${I.size}</i><span>${t("site.size")}</span><div class="stepper end"><button data-g="${i}" data-k="max_min" data-d="-5">${I.minus}</button><span>${t("fmt.min", { n: c.max_min })}</span><button data-g="${i}" data-k="max_min" data-d="5">${I.plus}</button></div>
         <i>${I.down}</i><span>${t("site.drain")}</span><div class="stepper end"><button data-g="${i}" data-k="drain" data-d="-0.5">${I.minus}</button><span>×${c.drain}</span><button data-g="${i}" data-k="drain" data-d="0.5">${I.plus}</button></div>
-        <i>${I.up}</i><span>${t("site.refill")}</span><div class="stepper end"><button data-g="${i}" data-k="refill_per_hour" data-d="-5">${I.minus}</button><span>${t("fmt.perHour", { n: c.refill_per_hour })}</span><button data-g="${i}" data-k="refill_per_hour" data-d="5">${I.plus}</button></div>
+        <i>${I.up}</i><span>${t("site.refill")}</span><div class="stepper end"><button data-g="${i}" data-k="refill_per_hour" data-d="-5">${I.minus}</button><span>${t("fmt.perHour", { n: c.refill_per_hour })}</span><button data-g="${i}" data-k="refill_per_hour" data-d="5">${I.plus}</button></div>` : ""}
         <div class="foot"><button class="icon-btn del" data-del="${i}" title="${t("site.remove")}">${I.trash}</button></div>
       </div>` : "";
     return `<div class="site ${off ? "off" : ""}">
@@ -629,11 +637,16 @@ function bind() {
     if (ex) { archExpanded = archExpanded === +ex.dataset.exp ? null : +ex.dataset.exp; renderDossiers(); }
   };
 
-  // Jauges
+  // Jauges. Bouton à gauche du champ : ajouter avec jauge ou en focus seulement.
+  $("siteMode").onclick = () => { addFocusOnly = !addFocusOnly; renderSiteMode(); $("siteInput").focus(); };
+  renderSiteMode();
   $("addSite").onsubmit = (e) => {
     e.preventDefault();
     const v = $("siteInput").value.trim().toLowerCase().replace(/^https?:\/\//, "").replace(/^www\./, "").split(/[/?#:]/)[0];
-    if (v && v.includes(".")) saveSettings((c) => { if (!c.sites.includes(v)) c.sites.push(v); });
+    if (v && v.includes(".")) saveSettings((c) => {
+      if (!c.sites.includes(v)) c.sites.push(v);
+      if (addFocusOnly) c.gauge_cfg[v] = { ...GDEF, ...c.gauge_cfg[v], enabled: false };
+    });
     $("siteInput").value = "";
   };
   $("siteList").onclick = (e) => {

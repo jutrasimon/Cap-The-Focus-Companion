@@ -259,5 +259,9 @@
   "ext.retry": "Cap ne répond pas. Réessayer",
   "ext.hint": "Les jauges et les sessions se règlent dans Cap.",
   "ext.badgeFocus": "Cap · focus en cours",
-  "ext.badgeGauge": "Cap · {s} : {n} min de jauge"
+  "ext.badgeGauge": "Cap · {s} : {n} min de jauge",
+  "site.modeGauge": "Avec jauge",
+  "site.modeFocus": "Focus seulement : bloqué pendant le focus, sans jauge",
+  "site.focusTag": "Focus",
+  "site.focusTip": "Bloqué seulement pendant le focus"
 }
