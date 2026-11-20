@@ -3,6 +3,8 @@
 //! Cap : focus, dossiers, jauges par site, rappels et stats. Tout reste local.
 //! L'extension de navigateur parle à Cap sur 127.0.0.1:47615.
 
+#[macro_use]
+mod log;
 mod dossier;
 mod gauge;
 mod perf;
@@ -188,6 +190,8 @@ struct Settings {
     misses_to_pause: u32,
     /// Mode léger : sans accélération graphique, un seul processus d'affichage
     light: bool,
+    /// Migration 1.8.1 : le mode léger repasse à non (plantages soupçonnés)
+    light_v2: bool,
     /// Pause générale (je m'absente) : depuis quand
     away_since: Option<u64>,
     /// Le focus a été mis en pause par la pause générale
@@ -218,7 +222,8 @@ impl Default for Settings {
             sc_quick: "ctrl+alt+r".into(),
             lang: "auto".into(),
             misses_to_pause: 2,
-            light: true,
+            light: false,
+            light_v2: false,
             away_since: None,
             away_focus: false,
         }
@@ -726,8 +731,16 @@ fn ensure_window(app: &AppHandle, label: &str) -> Option<WebviewWindow> {
         // Moteur d'affichage au régime : services d'Edge inutiles coupés.
         // Identique pour toutes les fenêtres (exigence de WebView2).
         .additional_browser_args(ARGS.get().map(|s| s.as_str()).unwrap_or(WEBVIEW_ARGS))
-        .build()
-        .ok()?;
+        .build();
+    let win = match win {
+        Ok(w) => w,
+        Err(e) => {
+            clog!("ÉCHEC création fenêtre {label} : {e}");
+            return None;
+        }
+    };
+    clog!("fenêtre {label} créée");
+    watch_webview(&win);
     if label == "main" {
         let app2 = app.clone();
         win.on_window_event(move |e| match e {
@@ -766,6 +779,7 @@ fn retire_window(app: &AppHandle, label: &str) {
         let _ = a.run_on_main_thread(move || {
             if let Some(w) = a2.get_webview_window(&l) {
                 if !w.is_visible().unwrap_or(true) {
+                    clog!("fenêtre {} détruite", w.label());
                     let _ = w.destroy();
                 }
             }
@@ -773,60 +787,69 @@ fn retire_window(app: &AppHandle, label: &str) {
     });
 }
 
-/// Cache une fenêtre gardée en vie, puis la met en veille 2 s plus tard si elle est toujours cachée :
-/// son moteur libère alors l'essentiel de sa mémoire.
+/// Cache une fenêtre gardée en vie. Plus de mise en veille du moteur (TrySuspend) :
+/// soupçonnée de plantages au retour d'une longue absence (1.5.2 à 1.8.0).
 fn hide_window(app: &AppHandle, label: &str) {
-    let Some(w) = app.get_webview_window(label) else { return };
-    let _ = w.hide();
-    let (a, l) = (app.clone(), label.to_string());
-    thread::spawn(move || {
-        thread::sleep(Duration::from_secs(2));
-        let a2 = a.clone();
-        let _ = a.run_on_main_thread(move || {
-            if let Some(w) = a2.get_webview_window(&l) {
-                if !w.is_visible().unwrap_or(true) {
-                    sleep_webview(&w, true);
-                }
-            }
-        });
-    });
+    if let Some(w) = app.get_webview_window(label) {
+        if w.is_visible().unwrap_or(false) {
+            clog!("fenêtre {label} cachée");
+        }
+        let _ = w.hide();
+    }
 }
 
-/// Réveille avant d'afficher.
 fn show_window(w: &WebviewWindow) {
-    sleep_webview(w, false);
+    if !w.is_visible().unwrap_or(false) {
+        clog!("fenêtre {} affichée", w.label());
+    }
     let _ = w.show();
 }
 
+/// Plantage d'un processus du moteur web : on le note et on répare.
+/// Affichage planté ou figé : la page est rechargée. Moteur entier mort : Cap redémarre.
 #[cfg(windows)]
-fn sleep_webview(w: &WebviewWindow, sleep: bool) {
+fn watch_webview(w: &WebviewWindow) {
+    let app = w.app_handle().clone();
+    let label = w.label().to_string();
     let _ = w.with_webview(move |wv| unsafe {
         use webview2_com::Microsoft::Web::WebView2::Win32::*;
         use windows_core::Interface;
-        let ctl = wv.controller();
-        let Ok(core) = ctl.CoreWebView2() else { return };
-        if let Ok(c19) = core.cast::<ICoreWebView2_19>() {
-            let _ = c19.SetMemoryUsageTargetLevel(if sleep {
-                COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_LOW
-            } else {
-                COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_NORMAL
-            });
-        }
-        if let Ok(c3) = core.cast::<ICoreWebView2_3>() {
-            if sleep {
-                let _ = ctl.SetIsVisible(false);
-                let h = webview2_com::TrySuspendCompletedHandler::create(Box::new(|_, _| Ok(())));
-                let _ = c3.TrySuspend(&h);
-            } else {
-                let _ = c3.Resume();
-                let _ = ctl.SetIsVisible(true);
+        let Ok(core) = wv.controller().CoreWebView2() else { return };
+        let h = webview2_com::ProcessFailedEventHandler::create(Box::new(move |sender, args| {
+            let mut kind = COREWEBVIEW2_PROCESS_FAILED_KIND(-1);
+            let mut code = 0i32;
+            if let Some(a) = args.as_ref() {
+                let _ = a.ProcessFailedKind(&mut kind);
+                if let Ok(a2) = a.cast::<ICoreWebView2ProcessFailedEventArgs2>() {
+                    let _ = a2.ExitCode(&mut code);
+                }
             }
-        }
+            clog!("MOTEUR WEB EN ÉCHEC fenêtre={label} type={} code={code}", kind.0);
+            if kind == COREWEBVIEW2_PROCESS_FAILED_KIND_BROWSER_PROCESS_EXITED {
+                clog!("moteur entier arrêté : redémarrage de Cap"); // i18n-ok
+                let a = app.clone();
+                thread::spawn(move || {
+                    thread::sleep(Duration::from_millis(500));
+                    clear_markers();
+                    a.restart();
+                });
+            } else if kind == COREWEBVIEW2_PROCESS_FAILED_KIND_RENDER_PROCESS_EXITED
+                || kind == COREWEBVIEW2_PROCESS_FAILED_KIND_RENDER_PROCESS_UNRESPONSIVE
+            {
+                if let Some(c) = sender.as_ref() {
+                    clog!("rechargement de {label}");
+                    let _ = c.Reload();
+                }
+            }
+            Ok(())
+        }));
+        let mut token = 0i64;
+        let _ = core.add_ProcessFailed(&h, &mut token);
     });
 }
 
 #[cfg(not(windows))]
-fn sleep_webview(_: &WebviewWindow, _: bool) {}
+fn watch_webview(_: &WebviewWindow) {}
 
 /// Applique le mode : "full" (fenêtre complète), "mini" (bulle) ou "closed" (rien à l'écran).
 /// La bulle prend la place du coin haut droit de la fenêtre, et inversement.
@@ -888,6 +911,7 @@ fn set_mode_inner(app: &AppHandle, sh: &Shared, mode: &str) {
         "mini" | "closed" => mode,
         _ => "full",
     };
+    clog!("mode {mode}");
     {
         let mut d = sh.d.lock().unwrap();
         d.settings.mode = mode.into();
@@ -1192,6 +1216,9 @@ fn ticker(app: AppHandle, sh: S) {
             let dt_ms = now.saturating_sub(d.last_tick);
             d.last_tick = now;
             let asleep = dt_ms > 10_000; // après une veille : recharge seulement
+            if dt_ms > 30_000 && dt_ms < u64::MAX / 2 {
+                clog!("réveil : {} s sans battement", dt_ms / 1000);
+            }
             let dt = (dt_ms as f64 / 1000.0).min(86_400.0);
             let hosts = d.using_hosts(now);
             let focus = d.focus_on();
@@ -1854,6 +1881,7 @@ fn reminders_set_on(app: AppHandle, st: State<S>, on: bool) {
 }
 
 fn set_away_inner(app: &AppHandle, st: &Shared, on: bool) {
+    clog!("pause générale {}", if on { "oui" } else { "non" });
     let mut d = st.d.lock().unwrap();
     let hide = d.set_away(on);
     commit(app, st, &mut d);
@@ -1868,6 +1896,27 @@ fn set_away_inner(app: &AppHandle, st: &Shared, on: bool) {
 #[tauri::command]
 fn set_away(app: AppHandle, st: State<S>, on: bool) {
     set_away_inner(&app, &st, on);
+}
+
+/// Erreurs de l'interface, pour le journal
+#[tauri::command]
+fn log_js(window: WebviewWindow, msg: String) {
+    let m: String = msg.chars().take(600).collect();
+    clog!("JS {} : {m}", window.label());
+}
+
+/// Déplacement de fenêtre lancé côté Rust (fil principal), erreur notée
+#[tauri::command]
+fn start_drag(window: WebviewWindow) {
+    if let Err(e) = window.start_dragging() {
+        clog!("ÉCHEC déplacement {} : {e}", window.label());
+    }
+}
+
+#[tauri::command]
+fn open_log() {
+    #[cfg(windows)]
+    let _ = std::process::Command::new("notepad").arg(log::path()).spawn();
 }
 
 #[tauri::command]
@@ -2074,10 +2123,56 @@ fn quit(app: AppHandle, st: State<S>) {
     app.exit(0);
 }
 
-fn clear_light_guard(st: &Shared) {
-    if let Ok(d) = st.d.lock() {
-        let _ = std::fs::remove_file(d.path.with_file_name("light.try"));
-    }
+fn clear_light_guard(_st: &Shared) {
+    clear_markers();
+}
+
+/// Sortie propre : plus de marqueur « en cours » ni de filet du mode léger.
+fn clear_markers() {
+    clog!("sortie propre");
+    let _ = std::fs::remove_file(log::dir().join("running"));
+    let _ = std::fs::remove_file(log::dir().join("light.try"));
+}
+
+/// Surveille le fil principal : s'il ne répond plus 5 s, on le note (avec l'état du verrou),
+/// puis la durée du blocage quand il revient.
+static MAIN_BEAT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+static APP: std::sync::OnceLock<AppHandle> = std::sync::OnceLock::new();
+
+fn start_watchdog() {
+    thread::spawn(|| {
+        let mut last_loop = now_ms();
+        let mut blocked_since: Option<u64> = None;
+        loop {
+            thread::sleep(Duration::from_secs(2));
+            let now = now_ms();
+            if now.saturating_sub(last_loop) > 15_000 {
+                // L'ordinateur dormait : pas un blocage
+                blocked_since = None;
+                MAIN_BEAT.store(now, std::sync::atomic::Ordering::Relaxed);
+            }
+            last_loop = now;
+            let Some(app) = APP.get() else { continue };
+            let _ = app.run_on_main_thread(|| MAIN_BEAT.store(now_ms(), std::sync::atomic::Ordering::Relaxed));
+            let beat = MAIN_BEAT.load(std::sync::atomic::Ordering::Relaxed);
+            if beat == 0 {
+                continue;
+            }
+            let late = now.saturating_sub(beat);
+            match blocked_since {
+                None if late > 5_000 => {
+                    blocked_since = Some(beat);
+                    let lock = app.try_state::<S>().map(|st| if st.d.try_lock().is_ok() { "libre" } else { "tenu" }).unwrap_or("?");
+                    clog!("BLOCAGE : fil principal muet depuis {} s (verrou {lock})", late / 1000);
+                }
+                Some(b) if late < 3_000 => {
+                    clog!("fil principal reparti après {} s", now.saturating_sub(b) / 1000);
+                    blocked_since = None;
+                }
+                _ => {}
+            }
+        }
+    });
 }
 
 /// Relance Cap (changement du mode léger : réglage du moteur fixé au démarrage)
@@ -2103,14 +2198,20 @@ async fn tokio_sleep(secs: u64) {
 fn main() {
     // Journal de plantage dans le dossier de données, pour comprendre ce qui s'est passé
     std::panic::set_hook(Box::new(|info| {
-        let dir = std::env::var("APPDATA").map(PathBuf::from).unwrap_or_else(|_| PathBuf::from(".")).join("app.cap.focus");
-        let _ = std::fs::create_dir_all(&dir);
-        let line = format!("{} · {} · {}\n", now_ms(), env!("CARGO_PKG_VERSION"), info); // i18n-ok : journal développeur
-        use std::io::Write as _;
-        if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(dir.join("crash.log")) {
-            let _ = f.write_all(line.as_bytes());
-        }
+        let bt = std::backtrace::Backtrace::force_capture();
+        clog!("PANIQUE {info}\n{bt}");
     }));
+    log::install_native_crash_hook();
+    {
+        let running = log::dir().join("running");
+        if running.exists() {
+            clog!("ATTENTION : la session précédente s'est terminée sans quitter (plantage, arrêt forcé ou extinction)"); // i18n-ok
+        }
+        let _ = std::fs::create_dir_all(log::dir());
+        let _ = std::fs::write(&running, b"1");
+    }
+    clog!("==== Cap {} démarre", env!("CARGO_PKG_VERSION"));
+    start_watchdog();
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             let sh = app.state::<S>();
@@ -2159,6 +2260,9 @@ fn main() {
             quit,
             restart,
             set_away,
+            log_js,
+            start_drag,
+            open_log,
         ])
         .setup(move |app| {
             STARTED.store(now_ms(), std::sync::atomic::Ordering::Relaxed);
@@ -2325,10 +2429,16 @@ fn main() {
                 apply_tray(app.handle(), TrayInfo::of(&d));
                 if first_run { "full".to_string() } else { d.settings.mode.clone() }
             };
+            let _ = APP.set(app.handle().clone());
             // Mode léger, avec filet : si Cap s'est arrêté dans la minute après un démarrage léger,
             // le mode léger est coupé pour de bon.
             {
                 let mut d = sh.d.lock().unwrap();
+                if !d.settings.light_v2 {
+                    d.settings.light_v2 = true;
+                    d.settings.light = false;
+                    d.save();
+                }
                 let guard = d.path.with_file_name("light.try");
                 if guard.exists() {
                     let _ = std::fs::remove_file(&guard);
@@ -2339,6 +2449,7 @@ fn main() {
                 }
                 let light = d.settings.light;
                 let _ = ARGS.set(if light { format!("{WEBVIEW_ARGS}{LIGHT_ARGS}") } else { WEBVIEW_ARGS.to_string() });
+                clog!("mode léger={light} mode={} pause={}", d.settings.mode, d.settings.away_since.is_some());
                 if light {
                     let _ = std::fs::write(&guard, b"1");
                     thread::spawn(move || {

@@ -1,3 +1,10 @@
+// Erreurs de l'interface vers le journal de Cap (cap.log)
+(() => {
+  const send = (m) => { try { window.__TAURI__.core.invoke("log_js", { msg: String(m) }); } catch (_) {} };
+  window.addEventListener("error", (e) => send(`${e.message} @ ${e.filename}:${e.lineno}:${e.colno}`));
+  window.addEventListener("unhandledrejection", (e) => send(`promesse : ${e.reason && (e.reason.stack || e.reason)}`));
+})();
+
 // Icônes au trait, 24x24, stroke=currentColor
 const P = (d) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${d}</svg>`;
 window.ICON = {

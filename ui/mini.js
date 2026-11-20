@@ -46,6 +46,6 @@ $("cl").addEventListener("click", (e) => { e.stopPropagation(); invoke("set_mode
 let down = null;
 $("m").addEventListener("mousedown", (e) => { if (e.button === 0 && !e.target.closest("button")) down = { x: e.screenX, y: e.screenY }; });
 window.addEventListener("mousemove", (e) => {
-  if (down && Math.hypot(e.screenX - down.x, e.screenY - down.y) > 4) { down = null; T.window.getCurrentWindow().startDragging(); }
+  if (down && Math.hypot(e.screenX - down.x, e.screenY - down.y) > 4) { down = null; T.core.invoke("start_drag"); }
 });
 window.addEventListener("mouseup", () => { if (down) invoke("set_mode", { mode: "full" }); down = null; });

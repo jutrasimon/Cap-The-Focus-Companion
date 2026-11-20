@@ -270,5 +270,7 @@
   "hdr.back": "Paused. Click to resume",
   "tray.away": "Pause everything",
   "tray.back": "Resume",
-  "tray.awayOn": "paused"
+  "tray.awayOn": "paused",
+  "set.log": "Log",
+  "set.openLog": "Open the log"
 }

@@ -412,7 +412,8 @@ function renderSettings() {
     <div class="ab"><span>${t("set.version")}</span><b>${esc(ab.version)}</b></div>
     <div class="ab"><span>${t("set.built")}</span><b>${new Date(ab.built).toLocaleString(LOC(), { dateStyle: "medium", timeStyle: "short" })}</b></div>
     <div class="ab"><span>${t("set.extShipped")}</span><b>${esc(ab.ext_version)}</b></div>
-    <div class="ab"><span>${t("set.data")}</span><b class="path" title="${esc(ab.data_dir)}">${esc(ab.data_dir)}</b><button class="icon-btn sm" id="openData" title="${t("set.openFolder")}">${I.folder}</button></div>`);
+    <div class="ab"><span>${t("set.data")}</span><b class="path" title="${esc(ab.data_dir)}">${esc(ab.data_dir)}</b><button class="icon-btn sm" id="openData" title="${t("set.openFolder")}">${I.folder}</button></div>
+    <div class="ab"><span>${t("set.log")}</span><b class="path">cap.log</b><button class="icon-btn sm" id="openLog" title="${t("set.openLog")}">${I.book}</button></div>`);
 }
 
 // ---------------------------------------------------- stats
@@ -546,7 +547,7 @@ function bind() {
       return invoke("set_mode", { mode: "mini" });
     }
     lastDown = now; lastX = e.screenX; lastY = e.screenY;
-    T.window.getCurrentWindow().startDragging();
+    invoke("start_drag");
   });
   $("closeBtn").onclick = () => invoke("set_mode", { mode: "closed" });
   $("gearBtn").onclick = () => showTab(tab === "settings" ? lastTab : "settings");
@@ -776,7 +777,7 @@ function bind() {
     updBusy = false;
     renderSettings();
   };
-  $("about").onclick = (e) => { if (e.target.closest("#openData")) invoke("open_data_folder"); };
+  $("about").onclick = (e) => { if (e.target.closest("#openData")) invoke("open_data_folder"); if (e.target.closest("#openLog")) invoke("open_log"); };
   $("quitBtn").onclick = (e) => { if (armed(e.currentTarget)) invoke("quit"); };
   $("quitBtn").classList.add("del");
 
