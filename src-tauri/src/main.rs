@@ -767,24 +767,10 @@ fn ensure_window(app: &AppHandle, label: &str) -> Option<WebviewWindow> {
     Some(win)
 }
 
-/// Cache tout de suite, détruit 3 s plus tard si la fenêtre est toujours cachée.
-/// Détruire une fenêtre pendant qu'elle traite encore un appel la fait planter.
+/// Rappels et pile : cachés, jamais détruits. Détruire une fenêtre WebView2 a figé
+/// le fil principal (journal du 2026-11-20 15:16 : destruction du rappel, puis blocage définitif).
 fn retire_window(app: &AppHandle, label: &str) {
-    let Some(w) = app.get_webview_window(label) else { return };
-    let _ = w.hide();
-    let (a, l) = (app.clone(), label.to_string());
-    thread::spawn(move || {
-        thread::sleep(Duration::from_secs(3));
-        let a2 = a.clone();
-        let _ = a.run_on_main_thread(move || {
-            if let Some(w) = a2.get_webview_window(&l) {
-                if !w.is_visible().unwrap_or(true) {
-                    clog!("fenêtre {} détruite", w.label());
-                    let _ = w.destroy();
-                }
-            }
-        });
-    });
+    hide_window(app, label);
 }
 
 /// Cache une fenêtre gardée en vie. Plus de mise en veille du moteur (TrySuspend) :
@@ -2139,6 +2125,19 @@ fn clear_markers() {
 static MAIN_BEAT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 static APP: std::sync::OnceLock<AppHandle> = std::sync::OnceLock::new();
 
+/// Relance Cap quand il est figé : nouvelle instance qui attend 3 s, puis fin immédiate de celle-ci.
+fn relaunch_hard() {
+    if let Ok(exe) = std::env::current_exe() {
+        let _ = std::process::Command::new(exe).arg("--relaunch").spawn();
+    }
+    #[cfg(windows)]
+    unsafe {
+        use windows_sys::Win32::System::Threading::{GetCurrentProcess, TerminateProcess};
+        TerminateProcess(GetCurrentProcess(), 3);
+    }
+    std::process::exit(3);
+}
+
 fn start_watchdog() {
     thread::spawn(|| {
         let mut last_loop = now_ms();
@@ -2164,6 +2163,10 @@ fn start_watchdog() {
                     blocked_since = Some(beat);
                     let lock = app.try_state::<S>().map(|st| if st.d.try_lock().is_ok() { "libre" } else { "tenu" }).unwrap_or("?");
                     clog!("BLOCAGE : fil principal muet depuis {} s (verrou {lock})", late / 1000);
+                }
+                Some(b) if now.saturating_sub(b) > 20_000 => {
+                    clog!("fil principal figé depuis {} s : redémarrage automatique", now.saturating_sub(b) / 1000);
+                    relaunch_hard();
                 }
                 Some(b) if late < 3_000 => {
                     clog!("fil principal reparti après {} s", now.saturating_sub(b) / 1000);
@@ -2209,6 +2212,11 @@ fn main() {
         }
         let _ = std::fs::create_dir_all(log::dir());
         let _ = std::fs::write(&running, b"1");
+    }
+    if std::env::args().any(|a| a == "--relaunch") {
+        // Laisse l'instance figée finir de disparaître avant de prendre sa place
+        thread::sleep(Duration::from_secs(3));
+        clog!("relance après blocage"); // i18n-ok
     }
     clog!("==== Cap {} démarre", env!("CARGO_PKG_VERSION"));
     start_watchdog();

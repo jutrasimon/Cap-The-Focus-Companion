@@ -14,9 +14,14 @@
 - Suppression : poubelle en deux clics (le premier arme, le second confirme).
 
 ## Performance
-- Cap doit rester léger. Les fenêtres web sont créées à la demande et détruites quand elles disparaissent (`ensure_window`, `destroy_window`).
+- Cap doit rester léger, mais la stabilité passe avant.
+- **Ne jamais détruire une fenêtre WebView2** : ça fige le fil principal (journal du 2026-11-20). Les fenêtres sont créées à la demande puis seulement cachées.
+- Pas de `TrySuspend`, de `--renderer-process-limit` ni de `--disable-gpu` : tous associés à des plantages. Toute nouvelle optimisation du moteur se valide avec `cap.log` sur une vraie machine.
 - Rien de calculé chaque seconde si rien ne l'affiche.
 - Ne jamais appeler l'interface (fenêtres, icône) en tenant le verrou principal depuis un autre fil.
+
+## Journal
+- `cap.log` dans le dossier de données : chaque événement important passe par `clog!` (texte en dur permis, commentaire `i18n-ok`).
 
 ## Publier
 - `python scripts/bump.py X.Y.Z`, puis un commit dont le message commence par `vX.Y.Z` sur `main`.
