@@ -1,7 +1,7 @@
 //! Mesure de ce que Cap coûte : processeur et mémoire privée de Cap et de ses processus enfants
 //! (moteur d'affichage WebView2). Appels Windows directs, sans bibliothèque lourde.
 
-#[derive(Default, Clone, Copy)]
+#[derive(Default, Clone)]
 pub struct Sample {
     /// % du processeur total (tous les cœurs)
     pub cpu: f64,
@@ -12,17 +12,30 @@ pub struct Sample {
     /// Mémoire de travail (inclut le partagé, donc surestimée)
     pub working: u64,
     pub procs: usize,
+    /// Mémoire privée en RAM (ce que montre le Gestionnaire des tâches)
+    pub ws: u64,
+    pub cap_ws: u64,
+    pub list: Vec<ProcMem>,
+}
+
+#[derive(Clone, Debug)]
+pub struct ProcMem {
+    pub pid: u32,
+    /// Mémoire privée en RAM
+    pub ws: u64,
+    /// Mémoire privée réservée (inclut ce qui est sur le disque)
+    pub private: u64,
 }
 
 #[cfg(windows)]
 mod imp {
-    use super::Sample;
+    use super::{ProcMem, Sample};
     use std::collections::HashMap;
     use windows_sys::Win32::Foundation::{CloseHandle, FILETIME, HANDLE, INVALID_HANDLE_VALUE};
     use windows_sys::Win32::System::Diagnostics::ToolHelp::{
         CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W, TH32CS_SNAPPROCESS,
     };
-    use windows_sys::Win32::System::ProcessStatus::{K32GetProcessMemoryInfo, PROCESS_MEMORY_COUNTERS, PROCESS_MEMORY_COUNTERS_EX};
+    use windows_sys::Win32::System::ProcessStatus::{K32GetProcessMemoryInfo, PROCESS_MEMORY_COUNTERS, PROCESS_MEMORY_COUNTERS_EX2};
     use windows_sys::Win32::System::Threading::{GetProcessTimes, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION};
 
     pub struct Probe {
@@ -91,8 +104,8 @@ mod imp {
                     if h.is_null() {
                         continue;
                     }
-                    let mut pmc: PROCESS_MEMORY_COUNTERS_EX = std::mem::zeroed();
-                    pmc.cb = std::mem::size_of::<PROCESS_MEMORY_COUNTERS_EX>() as u32;
+                    let mut pmc: PROCESS_MEMORY_COUNTERS_EX2 = std::mem::zeroed();
+                    pmc.cb = std::mem::size_of::<PROCESS_MEMORY_COUNTERS_EX2>() as u32;
                     let mem_ok = K32GetProcessMemoryInfo(h, &mut pmc as *mut _ as *mut PROCESS_MEMORY_COUNTERS, pmc.cb) != 0;
                     let (mut c, mut e, mut k, mut u): (FILETIME, FILETIME, FILETIME, FILETIME) = std::mem::zeroed();
                     let t_ok = GetProcessTimes(h, &mut c, &mut e, &mut k, &mut u) != 0;
@@ -101,8 +114,11 @@ mod imp {
                     if mem_ok {
                         s.private += pmc.PrivateUsage as u64;
                         s.working += pmc.WorkingSetSize as u64;
+                        s.ws += pmc.PrivateWorkingSetSize as u64;
+                        s.list.push(ProcMem { pid, ws: pmc.PrivateWorkingSetSize as u64, private: pmc.PrivateUsage as u64 });
                         if pid == me {
                             s.cap_private = pmc.PrivateUsage as u64;
+                            s.cap_ws = pmc.PrivateWorkingSetSize as u64;
                         }
                     }
                     if t_ok {
@@ -119,6 +135,7 @@ mod imp {
                     }
                 }
             }
+            s.list.sort_by(|a, b| b.ws.cmp(&a.ws));
             self.last = next;
             self.last_at = Some(now);
             s

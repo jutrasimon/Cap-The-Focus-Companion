@@ -897,10 +897,8 @@ async function pollPerf() {
   $("pfMemMax").textContent = t("pf.max", { v: mb(Math.max(...perfHist.map((x) => x.mem))) });
   const up = Math.floor(p.uptime / 1000);
   setHTML($("pfDetails"), `
-    <div class="ab"><span>${t("pf.capOnly")}</span><b>${p.cap_cpu.toFixed(1)} % · ${mb(p.cap_mem)}</b></div>
-    <div class="ab"><span>${t("pf.display")}</span><b>${(p.cpu - p.cap_cpu).toFixed(1)} % · ${mb(p.mem - p.cap_mem)}</b></div>
-    <div class="ab"><span>${t("pf.windows")}</span><b>${(p.windows || []).map((w) => t(`pf.win.${w}`)).join(" · ") || "—"}</b></div>
-    <div class="ab" title="${t("pf.workingTip")}"><span>${t("pf.working")}</span><b>${mb(p.working || 0)}</b></div>
+    ${(p.list || []).map((x) => `<div class="ab"><span>${x.k.split("+").map((k) => t(`pf.k.${k}`) || k).join(" + ")}</span><b>${mb(x.ws)}</b></div>`).join("")}
+    <div class="ab" data-tip="${esc(t("pf.reservedTip"))}"><span>${t("pf.reserved")}</span><b>${mb(p.reserved || 0)}</b></div>
     <div class="ab"><span>${t("pf.uptime")}</span><b>${t("fmt.hm", { h: Math.floor(up / 3600), m: String(Math.floor((up % 3600) / 60)).padStart(2, "0") })}</b></div>
     <div class="ab"><span>${t("pf.data")}</span><b>${t("pf.events", { s: kb(p.data), n: p.events })}</b></div>
     <div class="ab"><span>${t("pf.cores")}</span><b>${p.cores}</b></div>`);

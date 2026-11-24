@@ -1596,17 +1596,126 @@ static STARTED: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new
 static PROBE: Mutex<Option<perf::Probe>> = Mutex::new(None);
 
 /// Ce que Cap coûte à la machine : Cap et ses processus WebView2. Mesuré seulement quand l'onglet est ouvert.
+/// Rôle de chaque processus du moteur web : browser, gpu, utility, ou la fenêtre affichée
+/// par un processus d'affichage (main, mini, nudge, stack). Lecture seule, rafraîchie au plus toutes les 10 s.
+static KINDS: Mutex<Option<HashMap<u32, String>>> = Mutex::new(None);
+static KINDS_AT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+#[cfg(windows)]
+fn refresh_kinds(app: &AppHandle) {
+    let now = now_ms();
+    if now.saturating_sub(KINDS_AT.load(std::sync::atomic::Ordering::Relaxed)) < 10_000 {
+        return;
+    }
+    KINDS_AT.store(now, std::sync::atomic::Ordering::Relaxed);
+    let Some(w) = app.get_webview_window("main") else { return };
+    let _ = w.with_webview(|wv| unsafe {
+        use webview2_com::Microsoft::Web::WebView2::Win32::*;
+        use windows_core::Interface;
+        let Ok(core) = wv.controller().CoreWebView2() else { return };
+        let Ok(c2) = core.cast::<ICoreWebView2_2>() else { return };
+        let Ok(env) = c2.Environment() else { return };
+        let Ok(env13) = env.cast::<ICoreWebView2Environment13>() else { return };
+        let h = webview2_com::GetProcessExtendedInfosCompletedHandler::create(Box::new(|_, list| {
+            let Some(list) = list else { return Ok(()) };
+            let mut map = HashMap::new();
+            let mut n = 0u32;
+            let _ = list.Count(&mut n);
+            for i in 0..n {
+                let Ok(x) = list.GetValueAtIndex(i) else { continue };
+                let Ok(info) = x.ProcessInfo() else { continue };
+                let (mut pid, mut kind) = (0i32, COREWEBVIEW2_PROCESS_KIND(-1));
+                let _ = info.ProcessId(&mut pid);
+                let _ = info.Kind(&mut kind);
+                let mut label = match kind {
+                    COREWEBVIEW2_PROCESS_KIND_BROWSER => "browser".to_string(),
+                    COREWEBVIEW2_PROCESS_KIND_GPU => "gpu".to_string(),
+                    COREWEBVIEW2_PROCESS_KIND_UTILITY => "utility".to_string(),
+                    COREWEBVIEW2_PROCESS_KIND_RENDERER => "renderer".to_string(),
+                    _ => "other".to_string(),
+                };
+                if kind == COREWEBVIEW2_PROCESS_KIND_RENDERER {
+                    let mut wins: Vec<&str> = vec![];
+                    if let Ok(frames) = x.AssociatedFrameInfos() {
+                        if let Ok(it) = frames.GetIterator() {
+                            let mut has = windows_core::BOOL(0);
+                            let _ = it.HasCurrent(&mut has);
+                            while has.as_bool() {
+                                if let Ok(f) = it.GetCurrent() {
+                                    let mut src = windows_core::PWSTR::null();
+                                    let _ = f.Source(&mut src);
+                                    let url = webview2_com::take_pwstr(src);
+                                    for (file, lbl) in [("mini.html", "mini"), ("nudge.html", "nudge"), ("stack.html", "stack"), ("index.html", "main")] {
+                                        if url.contains(file) && !wins.contains(&lbl) {
+                                            wins.push(lbl);
+                                        }
+                                    }
+                                }
+                                let _ = it.MoveNext(&mut has);
+                            }
+                        }
+                    }
+                    if !wins.is_empty() {
+                        label = wins.join("+");
+                    }
+                }
+                map.insert(pid as u32, label);
+            }
+            if let Ok(mut k) = KINDS.lock() {
+                *k = Some(map);
+            }
+            Ok(())
+        }));
+        let _ = env13.GetProcessExtendedInfos(&h);
+    });
+}
+
+#[cfg(not(windows))]
+fn refresh_kinds(_: &AppHandle) {}
+
+/// Détail mémoire par processus, avec son rôle
+fn perf_list(p: &perf::Sample) -> Vec<(String, u64, u64)> {
+    let me = std::process::id();
+    let kinds = KINDS.lock().ok().and_then(|k| k.clone()).unwrap_or_default();
+    p.list
+        .iter()
+        .map(|x| {
+            let k = if x.pid == me { "cap".to_string() } else { kinds.get(&x.pid).cloned().unwrap_or_else(|| "other".into()) };
+            (k, x.ws, x.private)
+        })
+        .collect()
+}
+
+/// Toutes les 15 min (et 1 min après le démarrage) : une ligne mémoire dans le journal
+fn start_mem_log(app: AppHandle) {
+    thread::spawn(move || {
+        thread::sleep(Duration::from_secs(60));
+        loop {
+            refresh_kinds(&app);
+            thread::sleep(Duration::from_secs(3));
+            let p = PROBE.lock().unwrap().get_or_insert_with(perf::Probe::new).sample();
+            let parts: Vec<String> = perf_list(&p).iter().map(|(k, ws, pr)| format!("{k} {}/{}", ws >> 20, pr >> 20)).collect();
+            clog!("mémoire {} Mo en RAM, {} Mo réservés, {} processus · {}", p.ws >> 20, p.private >> 20, p.procs, parts.join(" · "));
+            thread::sleep(Duration::from_secs(15 * 60));
+        }
+    });
+}
+
 #[tauri::command]
 fn get_perf(app: AppHandle, st: State<S>) -> Value {
+    refresh_kinds(&app);
     let p = PROBE.lock().unwrap().get_or_insert_with(perf::Probe::new).sample();
+    let list: Vec<Value> = perf_list(&p).into_iter().map(|(k, ws, pr)| json!({ "k": k, "ws": ws, "private": pr })).collect();
     let d = st.d.lock().unwrap();
     let size = |p: &PathBuf| std::fs::metadata(p).map(|m| m.len()).unwrap_or(0);
     let windows: Vec<&str> = ["main", "mini", "nudge"].into_iter().filter(|l| app.get_webview_window(l).is_some()).collect();
     json!({
         "cpu": p.cpu,
         "cap_cpu": p.cap_cpu,
-        "mem": p.private,
-        "cap_mem": p.cap_private,
+        "mem": p.ws,
+        "cap_mem": p.cap_ws,
+        "reserved": p.private,
+        "list": list,
         "working": p.working,
         "procs": p.procs,
         "windows": windows,
@@ -2438,6 +2547,7 @@ fn main() {
                 if first_run { "full".to_string() } else { d.settings.mode.clone() }
             };
             let _ = APP.set(app.handle().clone());
+            start_mem_log(app.handle().clone());
             // Mode léger, avec filet : si Cap s'est arrêté dans la minute après un démarrage léger,
             // le mode léger est coupé pour de bon.
             {
