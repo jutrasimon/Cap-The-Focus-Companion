@@ -5,6 +5,7 @@ const invoke = (c, a) => T.core.invoke(c, a);
 const fmt = (ms) => { const s = Math.ceil(ms / 1000); const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60); return h ? `${h}:${String(m).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}` : `${m}:${String(s % 60).padStart(2, "0")}`; };
 const mins = (ms) => { const m = Math.max(1, Math.round(ms / 60000)); return m < 60 ? `${m} min` : `${Math.floor(m / 60)} h ${String(m % 60).padStart(2, "0")}`; };
 
+$("aw").innerHTML = I.coffee;
 $("go").innerHTML = I.play;
 $("ex").innerHTML = I.expand;
 $("cl").innerHTML = I.close;
@@ -28,7 +29,11 @@ function render(S) {
     $("go").title = t("mini.focus", { n: minutes });
   }
   $("m").classList.toggle("running", !!s && !s.paused);
+  away = S.settings.away_since != null;
+  $("aw").classList.toggle("away", away);
+  $("aw").title = t(away ? "hdr.back" : "hdr.away");
 }
+let away = false;
 
 T.event.listen("tick", (e) => render(e.payload));
 invoke("get_state").then((S) => {
@@ -38,6 +43,7 @@ invoke("get_state").then((S) => {
   render(S);
 });
 
+$("aw").addEventListener("click", (e) => { e.stopPropagation(); invoke("set_away", { on: !away }); });
 $("go").addEventListener("click", (e) => { e.stopPropagation(); invoke("start", { minutes }); });
 $("ex").addEventListener("click", (e) => { e.stopPropagation(); invoke("set_mode", { mode: "full" }); });
 $("cl").addEventListener("click", (e) => { e.stopPropagation(); invoke("set_mode", { mode: "closed" }); });

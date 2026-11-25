@@ -24,12 +24,14 @@
     .t { font: 500 13px/1 "Segoe UI Variable Display", "Segoe UI", system-ui; font-variant-numeric: tabular-nums; color: var(--muted); }
     .mini .icon-btn { width: 28px; height: 28px; border-radius: 50%; }
     .mini .icon-btn svg { width: 14px; height: 14px; }
+    #aw.away { color: var(--accent); background: color-mix(in srgb, var(--accent) 18%, transparent); }
     .bar { position: absolute; left: 0; bottom: 0; height: 2px; background: linear-gradient(90deg, var(--a1), var(--a2)); transition: width 1s linear; }
   </style>
 </head>
 <body>
   <div class="mini idle" id="m" >
     <img class="logo" src="mark.png" alt="" /><span class="g" id="g"></span><span class="t" id="t"></span>
+    <button class="icon-btn" id="aw"></button>
     <button class="icon-btn" id="go" title="Focus"></button>
     <button class="icon-btn" id="ex" title="Ouvrir"></button>
     <button class="icon-btn" id="cl" title="Fermer"></button>
