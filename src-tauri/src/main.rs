@@ -2234,6 +2234,16 @@ fn clear_markers() {
 static MAIN_BEAT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 static APP: std::sync::OnceLock<AppHandle> = std::sync::OnceLock::new();
 
+#[cfg(windows)]
+fn mouse_down() -> bool {
+    unsafe { windows_sys::Win32::UI::Input::KeyboardAndMouse::GetAsyncKeyState(0x01) as u16 & 0x8000 != 0 }
+}
+
+#[cfg(not(windows))]
+fn mouse_down() -> bool {
+    false
+}
+
 /// Relance Cap quand il est figé : nouvelle instance qui attend 3 s, puis fin immédiate de celle-ci.
 fn relaunch_hard() {
     if let Ok(exe) = std::env::current_exe() {
@@ -2273,7 +2283,8 @@ fn start_watchdog() {
                     let lock = app.try_state::<S>().map(|st| if st.d.try_lock().is_ok() { "libre" } else { "tenu" }).unwrap_or("?");
                     clog!("BLOCAGE : fil principal muet depuis {} s (verrou {lock})", late / 1000);
                 }
-                Some(b) if now.saturating_sub(b) > 20_000 => {
+                // 60 s et bouton de la souris relâché : glisser une fenêtre retient le fil principal sans le figer
+                Some(b) if now.saturating_sub(b) > 60_000 && !mouse_down() => {
                     clog!("fil principal figé depuis {} s : redémarrage automatique", now.saturating_sub(b) / 1000);
                     relaunch_hard();
                 }
