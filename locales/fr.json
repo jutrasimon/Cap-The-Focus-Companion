@@ -38,9 +38,8 @@
   "dos.current": "Dossiers en cours",
   "dos.bury": "Envoyer au cimetière",
   "dos.buryBtn": "Archiver",
-  "dos.decaySlower": "Déclin plus lent",
-  "dos.decayFaster": "Déclin plus rapide",
-  "dos.decayPerDay": "Déclin par jour",
+  "dos.decaySlower": "Vit plus longtemps",
+  "dos.decayFaster": "Vit moins longtemps",
   "dos.color": "Couleur",
   "dos.delete": "Supprimer",
   "dos.activeTip": "Actif · {n} j avant de perdre ce dossier",
@@ -142,7 +141,7 @@
   "pf.cores": "Cœurs",
   "set.autostart": "Démarrer avec Windows",
   "set.sound": "Son de fin de focus",
-  "set.decay": "Déclin des dossiers",
+  "set.decay": "Vie des dossiers",
   "set.scOpen": "Ouvrir / réduire",
   "set.scQuick": "Rappel unique",
   "set.scTip": "Cliquer, puis appuyer sur la nouvelle combinaison",
@@ -276,5 +275,8 @@
   "pf.k.gpu": "Carte graphique",
   "pf.k.utility": "Utilitaire",
   "pf.k.renderer": "Affichage",
-  "pf.k.other": "Autre"
+  "pf.k.other": "Autre",
+  "fmt.lifeDays": "{n} j",
+  "fmt.forever": "∞",
+  "dos.lifeTip": "Perdu après {n} jours sans activation"
 }

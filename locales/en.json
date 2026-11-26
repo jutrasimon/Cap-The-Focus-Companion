@@ -38,9 +38,8 @@
   "dos.current": "Current folders",
   "dos.bury": "Send to the graveyard",
   "dos.buryBtn": "Archive",
-  "dos.decaySlower": "Slower decay",
-  "dos.decayFaster": "Faster decay",
-  "dos.decayPerDay": "Decay per day",
+  "dos.decaySlower": "Lives longer",
+  "dos.decayFaster": "Lives shorter",
   "dos.color": "Color",
   "dos.delete": "Delete",
   "dos.activeTip": "Active · {n} days before losing this folder",
@@ -142,7 +141,7 @@
   "pf.cores": "Cores",
   "set.autostart": "Start with Windows",
   "set.sound": "End-of-focus sound",
-  "set.decay": "Folder decay",
+  "set.decay": "Folder lifetime",
   "set.scOpen": "Open / minimize",
   "set.scQuick": "One-time reminder",
   "set.scTip": "Click, then press the new combination",
@@ -276,5 +275,8 @@
   "pf.k.gpu": "Graphics card",
   "pf.k.utility": "Utility",
   "pf.k.renderer": "Display",
-  "pf.k.other": "Other"
+  "pf.k.other": "Other",
+  "fmt.lifeDays": "{n} d",
+  "fmt.forever": "∞",
+  "dos.lifeTip": "Lost after {n} days without activity"
 }

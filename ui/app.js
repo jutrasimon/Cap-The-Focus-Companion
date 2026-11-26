@@ -21,6 +21,16 @@ function applyI18n(root = document) {
   root.querySelectorAll("[data-t-tip]").forEach((el) => { el.dataset.tip = t(el.dataset.tTip); el.removeAttribute("title"); });
   document.documentElement.lang = L["_meta.code"] || "fr";
 }
+// Déclin des dossiers montré en durée de vie : jours avant d'être perdu sans activation
+const LIFE = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 14, 21, 30, 45, 60, 90, 180, 365];
+const lifeDays = (pct) => (pct > 0 ? Math.round(100 / pct) : 0);
+const lifeTxt = (pct) => (pct > 0 ? t("fmt.lifeDays", { n: lifeDays(pct) }) : t("fmt.forever"));
+const lifeStep = (pct, dir) => {
+  const d = lifeDays(pct) || 365;
+  const i = LIFE.findIndex((x) => x >= d);
+  const j = Math.max(0, Math.min(LIFE.length - 1, (i < 0 ? LIFE.length - 1 : i) + (dir > 0 ? (LIFE[i] === d ? 1 : 0) : -1)));
+  return 100 / LIFE[j];
+};
 let tab = "dossiers", lastTab = "dossiers";
 let hadSession = false;
 let minutes = 25, primed = false;
@@ -178,7 +188,7 @@ function postit(x) {
   }
   const menu = openMenu === x.id ? `
       <div class="pmenu">
-        <div class="stepper"><button data-decay="${x.id}" data-d="-1" title="${t("dos.decaySlower")}">${I.minus}</button><span title="${t("dos.decayPerDay")}">${t("fmt.perDay", { n: x.decay_eff })}</span><button data-decay="${x.id}" data-d="1" title="${t("dos.decayFaster")}">${I.plus}</button></div>
+        <div class="stepper"><button data-decay="${x.id}" data-d="-1" title="${t("dos.decayFaster")}">${I.minus}</button><span title="${esc(t("dos.lifeTip", { n: lifeDays(x.decay_eff) }))}">${lifeTxt(x.decay_eff)}</span><button data-decay="${x.id}" data-d="1" title="${t("dos.decaySlower")}">${I.plus}</button></div>
         <button class="mini-btn" data-color="${x.id}" title="${t("dos.color")}">${I.palette}</button>
         <button class="mini-btn del" data-del="${x.id}" title="${t("dos.delete")}">${I.trash}</button>
       </div>` : "";
@@ -379,8 +389,7 @@ const stepEvery = (m, d) => {
 function renderSettings() {
   $("autoSwitch").classList.toggle("on", !!S.autostart);
   $("soundSwitch").classList.toggle("on", S.settings.sound);
-  $("lightSwitch").classList.toggle("on", !!S.settings.light);
-  setHTML($("decayStep"), `<button data-dd="-1">${I.minus}</button><span>${t("fmt.perDay", { n: S.settings.dossier_decay })}</span><button data-dd="1">${I.plus}</button>`);
+  setHTML($("decayStep"), `<button data-dd="-1">${I.minus}</button><span data-tip="${esc(t("dos.lifeTip", { n: lifeDays(S.settings.dossier_decay) }))}">${lifeTxt(S.settings.dossier_decay)}</span><button data-dd="1">${I.plus}</button>`);
   const sc = (a) => a.split("+").map((k) => (["ctrl", "alt", "shift", "super", "space"].includes(k) ? t(`key.${k}`) : k.replace(/^key/, "").toUpperCase())).join(" ");
   // Langue
   const langs = S.langs || [];
@@ -616,7 +625,7 @@ function bind() {
     const dc = t.closest("[data-decay]");
     if (dc) {
       const x = S.dossiers.find((y) => y.id === +dc.dataset.decay);
-      return invoke("dossier_update", { id: x.id, decay: Math.max(0, Math.min(100, x.decay_eff + +dc.dataset.d)) });
+      return invoke("dossier_update", { id: x.id, decay: lifeStep(x.decay_eff, +dc.dataset.d) });
     }
     const co = t.closest("[data-color]");
     if (co) { const x = S.dossiers.find((y) => y.id === +co.dataset.color); return invoke("dossier_update", { id: x.id, color: (x.color + 1) % 6 }); }
@@ -736,9 +745,7 @@ function bind() {
   // Réglages
   $("autoRow").onclick = async () => { S.autostart = await invoke("set_autostart", { on: !S.autostart }); renderSettings(); };
   $("soundRow").onclick = () => saveSettings((c) => (c.sound = !c.sound));
-  // Réglage du moteur : Cap redémarre pour l'appliquer
-  $("lightRow").onclick = () => { saveSettings((c) => (c.light = !c.light)); setTimeout(() => invoke("restart"), 300); };
-  $("decayStep").onclick = (e) => { const b = e.target.closest("[data-dd]"); if (b) saveSettings((c) => (c.dossier_decay = Math.max(1, Math.min(50, c.dossier_decay + +b.dataset.dd)))); };
+  $("decayStep").onclick = (e) => { const b = e.target.closest("[data-dd]"); if (b) saveSettings((c) => (c.dossier_decay = lifeStep(c.dossier_decay, +b.dataset.dd))); };
   $("openExt").onclick = () => invoke("open_extension_folder");
   // Raccourcis : clic sur la ligne, puis la combinaison voulue
   document.querySelectorAll(".row.sc").forEach((row) => {

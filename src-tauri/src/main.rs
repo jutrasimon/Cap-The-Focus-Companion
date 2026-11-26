@@ -700,6 +700,15 @@ static ARGS: std::sync::OnceLock<String> = std::sync::OnceLock::new();
 /// Demande d'ouverture du rappel unique, pour une fenêtre pas encore chargée
 static PENDING_QUICK: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
+/// Zone utile de l'écran qui contient ce point (sinon l'écran principal).
+fn monitor_area_at(app: &AppHandle, x: i32, y: i32) -> (i32, i32, i32, i32, f64) {
+    if let Ok(Some(m)) = app.monitor_from_point(x as f64, y as f64) {
+        let wa = m.work_area();
+        return (wa.position.x, wa.position.y, wa.size.width as i32, wa.size.height as i32, m.scale_factor());
+    }
+    monitor_area(app)
+}
+
 fn monitor_area(app: &AppHandle) -> (i32, i32, i32, i32, f64) {
     if let Ok(Some(m)) = app.primary_monitor() {
         let wa = m.work_area();
@@ -849,20 +858,30 @@ fn apply_mode(app: &AppHandle, mode: &str, focus: bool) {
 }
 
 fn apply_mode_now(app: &AppHandle, mode: &str, focus: bool) {
-    let (ax, ay, aw, ah, sc) = monitor_area(app);
-    let px = |v: f64| (v * sc).round() as i32;
-    let (mw, mh, bw) = (px(MAIN_SIZE.0), px(MAIN_SIZE.1), px(MINI_SIZE.0));
-    // Marges transparentes : carte à 10 px du bord de la fenêtre, bulle à 6 px.
-    let d4 = px(4.0);
     let visible_pos = |label: &str| {
         app.get_webview_window(label)
             .filter(|w| w.is_visible().unwrap_or(false))
             .and_then(|w| w.outer_position().ok())
             .map(|p| (p.x, p.y))
     };
-    let main_pos = visible_pos("main")
-        .or_else(|| POS.lock().ok().and_then(|p| p[0]).map(|[x, y]| (x, y)))
-        .unwrap_or((ax + aw - mw - px(14.0), ay + ah - mh - px(14.0)));
+    let saved_main = visible_pos("main").or_else(|| POS.lock().ok().and_then(|p| p[0]).map(|[x, y]| (x, y)));
+    // Écran de référence : celui où se trouve la bulle ou la fenêtre, pas forcément l'écran principal
+    let (ax, ay, aw, ah, sc) = match visible_pos("mini").or(saved_main) {
+        Some((x, y)) => monitor_area_at(app, x + 20, y + 20),
+        None => monitor_area(app),
+    };
+    let px = |v: f64| (v * sc).round() as i32;
+    let size = |label: &str, d: (f64, f64)| {
+        app.get_webview_window(label)
+            .and_then(|w| w.outer_size().ok())
+            .filter(|s| s.width > 0)
+            .map(|s| (s.width as i32, s.height as i32))
+            .unwrap_or((px(d.0), px(d.1)))
+    };
+    let ((mw, mh), (bw, _)) = (size("main", MAIN_SIZE), size("mini", MINI_SIZE));
+    // Marges transparentes : carte à 10 px du bord de la fenêtre, bulle à 6 px.
+    let d4 = px(4.0);
+    let main_pos = saved_main.unwrap_or((ax + aw - mw - px(14.0), ay + ah - mh - px(14.0)));
     SHOWN.store(match mode { "mini" => 2, "closed" => 0, _ => 1 }, std::sync::atomic::Ordering::Relaxed);
     match mode {
         "mini" => {
@@ -884,6 +903,7 @@ fn apply_mode_now(app: &AppHandle, mode: &str, focus: bool) {
             };
             mx = mx.clamp(ax, (ax + aw - mw).max(ax));
             my = my.clamp(ay, (ay + ah - mh).max(ay));
+            clog!("fenêtre en {mx},{my} sur l'écran {ax},{ay} {aw}x{ah}");
             if let Some(w) = ensure_window(app, "main") {
                 let _ = w.set_position(PhysicalPosition::new(mx, my));
                 show_window(&w);
@@ -2580,7 +2600,8 @@ fn main() {
                         d.save();
                     }
                 }
-                let light = d.settings.light;
+                // Mode léger retiré de l'interface (--disable-gpu associé aux plantages)
+                let light = false;
                 let _ = ARGS.set(if light { format!("{WEBVIEW_ARGS}{LIGHT_ARGS}") } else { WEBVIEW_ARGS.to_string() });
                 clog!("mode léger={light} mode={} pause={}", d.settings.mode, d.settings.away_since.is_some());
                 if light {
