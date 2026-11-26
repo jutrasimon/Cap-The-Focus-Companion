@@ -522,6 +522,10 @@ impl Data {
 
     /// Sites bloqués en ce moment, avec la raison : focus ou jauge vide.
     fn blocked(&self) -> Vec<(String, &'static str)> {
+        // Pause générale : aucun site bloqué
+        if self.settings.away_since.is_some() {
+            return vec![];
+        }
         let focus = self.focus_on();
         self.settings
             .active_sites()
@@ -565,7 +569,7 @@ impl Data {
                     "max": cfg.max_s(),
                     "locked": st.locked,
                     "refill_in": gauge::refill_in_s(&cfg, &st),
-                    "using": !focus && !st.locked && hosts.iter().any(|h| gauge::host_matches(h, site)),
+                    "using": !focus && !st.locked && self.settings.away_since.is_none() && hosts.iter().any(|h| gauge::host_matches(h, site)),
                     "cfg": cfg,
                     "off": self.settings.sites_off.contains(site),
                 }),
@@ -1211,7 +1215,7 @@ fn ticker(app: AppHandle, sh: S) {
             let hour = now - now % 3_600_000;
             for site in d.settings.active_sites() {
                 let cfg = d.settings.gauge(&site);
-                let using = !asleep && !focus && hosts.iter().any(|h| gauge::host_matches(h, &site));
+                let using = !asleep && !focus && d.settings.away_since.is_none() && hosts.iter().any(|h| gauge::host_matches(h, &site));
                 if using {
                     let locked = d.gauges.get(&site).map_or(false, |g| g.locked);
                     if !locked {
