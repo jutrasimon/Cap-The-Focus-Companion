@@ -127,6 +127,7 @@ async function fetchState(wait) {
     if (!r.ok) throw new Error(String(r.status));
     const s = await r.json();
     version = s.v;
+    await selfUpdate(s.ext_version);
     return s;
   } catch (e) {
     if (!timedOut && restart) { restart = false; return null; } // relance volontaire
@@ -134,6 +135,19 @@ async function fetchState(wait) {
   } finally {
     clearTimeout(t);
   }
+}
+
+// Cap a été mis à jour avec une extension plus récente : on se recharge depuis le disque
+// (extension décompressée, les fichiers sont déjà à jour). Une seule tentative par version.
+async function selfUpdate(want) {
+  const have = api.runtime.getManifest().version;
+  if (!want || want === have || !api.runtime.reload) return;
+  try {
+    const k = await api.storage.local.get("reloadTried");
+    if (k.reloadTried === want) return;
+    await api.storage.local.set({ reloadTried: want });
+    api.runtime.reload();
+  } catch (_) {}
 }
 
 // Attente longue : Cap répond dès que l'état change. Si le navigateur endort l'extension, l'alarme la réveille.

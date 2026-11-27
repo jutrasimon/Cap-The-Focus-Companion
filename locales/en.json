@@ -42,7 +42,6 @@
   "dos.decayFaster": "Lives shorter",
   "dos.color": "Color",
   "dos.delete": "Delete",
-  "dos.activeTip": "Active · {n} days before losing this folder",
   "dos.complete": "Complete",
   "dos.options": "Options",
   "dos.reopen": "Reopen",
@@ -121,7 +120,7 @@
   "st.dossiers": "Folders",
   "st.open": "open",
   "st.avgActivity": "avg. activity",
-  "st.activations": "activations",
+  "st.activations": "Steps done",
   "st.created": "created",
   "st.completed": "completed",
   "st.lost": "lost",
@@ -278,5 +277,8 @@
   "pf.k.other": "Other",
   "fmt.lifeDays": "{n} d",
   "fmt.forever": "∞",
-  "dos.lifeTip": "Lost after {n} days without activity"
+  "dos.lifeTip": "Lost after {n} days without a checked step",
+  "dos.nextPh": "Next step?",
+  "dos.stepDone": "Step done: the folder is renewed",
+  "dos.lifeLeft": "Lost in {n} d unless a step is checked"
 }

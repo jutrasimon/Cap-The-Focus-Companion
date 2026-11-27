@@ -42,7 +42,6 @@
   "dos.decayFaster": "Vit moins longtemps",
   "dos.color": "Couleur",
   "dos.delete": "Supprimer",
-  "dos.activeTip": "Actif · {n} j avant de perdre ce dossier",
   "dos.complete": "Compléter",
   "dos.options": "Options",
   "dos.reopen": "Rouvrir",
@@ -121,7 +120,7 @@
   "st.dossiers": "Dossiers",
   "st.open": "en cours",
   "st.avgActivity": "activité moy.",
-  "st.activations": "activations",
+  "st.activations": "Étapes faites",
   "st.created": "créés",
   "st.completed": "complétés",
   "st.lost": "perdus",
@@ -278,5 +277,8 @@
   "pf.k.other": "Autre",
   "fmt.lifeDays": "{n} j",
   "fmt.forever": "∞",
-  "dos.lifeTip": "Perdu après {n} jours sans activation"
+  "dos.lifeTip": "Perdu après {n} jours sans étape cochée",
+  "dos.nextPh": "Prochaine étape ?",
+  "dos.stepDone": "Étape faite : le dossier repart à neuf",
+  "dos.lifeLeft": "Perdu dans {n} j si aucune étape n'est cochée"
 }

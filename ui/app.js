@@ -195,10 +195,14 @@ function postit(x) {
   const days = x.ms_left < 9e15 ? Math.ceil(x.ms_left / DAY) : "∞";
   return `<div class="postit" style="${style}" data-id="${x.id}">
       <div class="pt" contenteditable="plaintext-only" data-f="title" spellcheck="false">${esc(x.title)}</div>
+      <div class="pnext ${x.next ? "" : "empty"}">
+        <button class="ck" data-step="${x.id}" data-tip="${esc(t("dos.stepDone"))}" ${x.next ? "" : "disabled"}>${I.check}</button>
+        <div class="nx" contenteditable="plaintext-only" data-f="next" spellcheck="false" data-ph="${esc(t("dos.nextPh"))}">${esc(x.next || "")}</div>
+      </div>
       <div class="pn" contenteditable="plaintext-only" data-f="notes" spellcheck="false">${esc(x.notes)}</div>
       <div class="pf">
-        <button class="actif ${lvl < 25 ? "low" : ""}" data-act="${x.id}" title="${t("dos.activeTip", { n: days })}"><span class="af" style="width:${lvl}%"></span>${I.flame}<span>${lvl}%</span></button>
-        <button class="mini-btn" data-done="${x.id}" title="${t("dos.complete")}">${I.check}</button>
+        <span class="actif ${lvl < 25 ? "low" : ""}" data-tip="${esc(t("dos.lifeLeft", { n: days }))}"><span class="af" style="width:${lvl}%"></span>${I.flame}<span>${t("fmt.lifeDays", { n: days })}</span></span>
+        <button class="mini-btn" data-done="${x.id}" title="${t("dos.complete")}">${I.star}</button>
         <button class="mini-btn" data-menu="${x.id}" title="${t("dos.options")}">${I.more}</button>
       </div>${menu}
     </div>`;
@@ -493,7 +497,7 @@ function renderStats() {
   const remNames = Object.keys(perRem).sort((x, y) => (perRem[y].a + perRem[y].m) - (perRem[x].a + perRem[x].m));
 
   // Dossiers
-  const dNew = of("dos_new").length, dAct = of("dos_active").length, dDone = of("dos_done").length, dLost = of("dos_lost").length;
+  const dNew = of("dos_new").length, dAct = of("dos_active").length + of("dos_step").length, dDone = of("dos_done").length, dLost = of("dos_lost").length;
   const open = S.dossiers.filter((x) => x.state === "open");
   const avgLvl = open.length ? Math.round(open.reduce((a, x) => a + x.level, 0) / open.length) : 0;
   const ended = S.dossiers.filter((x) => (x.state === "done" || x.state === "dead") && x.ended);
@@ -529,7 +533,9 @@ function renderStats() {
     sec("folder", t("st.dossiers"), `
       <div class="kpis">${kpi(open.length, t("st.open"))}${kpi(avgLvl + "%", t("st.avgActivity"))}${kpi(dAct, t("st.activations"))}
       ${kpi(dNew, t("st.created"))}${kpi(dDone, t("st.completed"))}${kpi(dLost, t("st.lost"))}</div>
-      ${ended.length ? `<div class="st-empty">${t("st.lifespan", { n: life })}</div>` : ""}`),
+      ${ended.length ? `<div class="st-empty">${t("st.lifespan", { n: life })}</div>` : ""}
+      ${of("dos_step").length ? `<div class="hist">${of("dos_step").slice().sort((a, b) => b.t - a.t).slice(0, 15).map((e) => `
+        <div class="hi"><span class="hs ok">${I.check}</span><span class="hd">${dateS(e.t)}</span><b>${esc(e.a || "")}</b></div>`).join("")}</div>` : ""}`),
   ].join("");
 }
 
@@ -615,6 +621,8 @@ function bind() {
   board.onclick = (e) => {
     const t = e.target;
     const act = t.closest("[data-act]");
+    const st = t.closest("[data-step]");
+    if (st) { st.closest(".postit").querySelector(".actif").classList.add("pop"); return invoke("dossier_step_done", { id: +st.dataset.step }); }
     if (act) { act.classList.add("pop"); setTimeout(() => act.classList.remove("pop"), 500); return invoke("dossier_activate", { id: +act.dataset.act }); }
     const dn = t.closest("[data-done]");
     if (dn) return invoke("dossier_set_state", { id: +dn.dataset.done, state: "done" });
@@ -637,12 +645,12 @@ function bind() {
     if (!f) return;
     const id = +e.target.closest(".postit").dataset.id;
     const x = S.dossiers.find((y) => y.id === id);
-    const v = f === "title" ? e.target.textContent.trim() : e.target.innerText.replace(/\n$/, "");
+    const v = f === "title" || f === "next" ? e.target.textContent.trim() : e.target.innerText.replace(/\n$/, "");
     if (x && v !== x[f] && (f !== "title" || v)) invoke("dossier_update", { id, [f]: v });
     board.dataset.k = "";
   });
   board.addEventListener("keydown", (e) => {
-    if (e.target.dataset.f === "title" && e.key === "Enter") { e.preventDefault(); e.target.blur(); }
+    if ((e.target.dataset.f === "title" || e.target.dataset.f === "next") && e.key === "Enter") { e.preventDefault(); e.target.blur(); }
     if (e.key === "Escape") { e.stopPropagation(); e.target.blur(); }
   });
   $("archList").onclick = (e) => {

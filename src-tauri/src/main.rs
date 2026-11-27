@@ -287,6 +287,8 @@ struct Dossier {
     state: DState,
     ended: Option<u64>,
     activations: u32,
+    /// Prochaine étape. La cocher nourrit le dossier (seule façon de le garder en vie).
+    next: String,
 }
 
 #[derive(Deserialize, Default)]
@@ -628,6 +630,8 @@ impl Data {
         let reasons: serde_json::Map<String, Value> = blocked.iter().map(|(s, r)| (s.clone(), json!(r))).collect();
         json!({
             "v": self.version,
+            // Version des fichiers de l'extension livrés avec Cap : une extension plus ancienne se recharge seule
+            "ext_version": env!("CAP_EXT_VERSION"),
             "active": !blocked.is_empty(),
             "until": now + LEASE_MS,
             "left": left,
@@ -2117,16 +2121,19 @@ fn dossier_add(app: AppHandle, st: State<S>, title: String) -> Option<u64> {
     let id = new_id(&mut d);
     let now = now_ms();
     let color = (d.dossiers.len() % 6) as u8;
-    d.dossiers.insert(0, Dossier { id, title: title.clone(), notes: String::new(), color, created: now, last_active: now, decay: None, state: DState::Open, ended: None, activations: 1 });
+    d.dossiers.insert(0, Dossier { id, title: title.clone(), notes: String::new(), color, created: now, last_active: now, decay: None, state: DState::Open, ended: None, activations: 1, next: String::new() });
     d.log("dos_new", &title, 0.0);
     commit(&app, &st, &mut d);
     Some(id)
 }
 
 #[tauri::command]
-fn dossier_update(app: AppHandle, st: State<S>, id: u64, title: Option<String>, notes: Option<String>, decay: Option<f64>, color: Option<u8>, decay_default: Option<bool>) {
+fn dossier_update(app: AppHandle, st: State<S>, id: u64, title: Option<String>, notes: Option<String>, decay: Option<f64>, color: Option<u8>, decay_default: Option<bool>, next: Option<String>) {
     let mut d = st.d.lock().unwrap();
     if let Some(x) = d.dossiers.iter_mut().find(|x| x.id == id) {
+        if let Some(n) = next {
+            x.next = n.trim().chars().take(200).collect();
+        }
         if let Some(t) = title {
             let t: String = t.trim().chars().take(120).collect();
             if !t.is_empty() {
@@ -2147,6 +2154,22 @@ fn dossier_update(app: AppHandle, st: State<S>, id: u64, title: Option<String>, 
         if let Some(c) = color {
             x.color = c % 6;
         }
+    }
+    commit(&app, &st, &mut d);
+}
+
+/// Étape faite : le dossier repart à neuf, l'étape va dans l'historique, le champ se vide.
+#[tauri::command]
+fn dossier_step_done(app: AppHandle, st: State<S>, id: u64) {
+    let mut d = st.d.lock().unwrap();
+    let mut t = None;
+    if let Some(x) = d.dossiers.iter_mut().find(|x| x.id == id && x.state == DState::Open && !x.next.is_empty()) {
+        x.last_active = now_ms();
+        x.activations += 1;
+        t = Some(format!("{} · {}", x.title, std::mem::take(&mut x.next)));
+    }
+    if let Some(t) = t {
+        d.log("dos_step", &t, 0.0);
     }
     commit(&app, &st, &mut d);
 }
@@ -2392,6 +2415,7 @@ fn main() {
             dossier_add,
             dossier_update,
             dossier_activate,
+            dossier_step_done,
             dossier_set_state,
             dossier_delete,
             dossier_move,
