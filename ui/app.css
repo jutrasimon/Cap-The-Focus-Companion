@@ -459,13 +459,15 @@ main::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; hei
 #awayBtn.away { color: var(--accent, #ff8a4d); background: color-mix(in srgb, var(--accent, #ff8a4d) 16%, transparent); }
 
 /* Prochaine étape d'un dossier */
-.postit .pnext { display: flex; align-items: flex-start; gap: 6px; padding: 5px 6px; border-radius: 8px; background: rgba(42,35,24,.09); }
+.postit .pnext { display: flex; align-items: flex-start; gap: 7px; padding: 5px 7px; border-radius: 8px; background: rgba(42,35,24,.09); }
 .postit .pnext.empty { background: transparent; outline: 1.5px dashed rgba(42,35,24,.3); }
-.postit .pnext .ck { flex: none; width: 18px; height: 18px; margin-top: 1px; border-radius: 5px; border: 1.5px solid rgba(42,35,24,.55); display: grid; place-items: center; color: transparent; }
-.postit .pnext .ck svg { width: 12px; height: 12px; }
-.postit .pnext .ck:not(:disabled):hover { background: rgba(42,35,24,.15); color: #2a2318; }
+.postit .pnext .ck { flex: none; position: relative; width: 16px; height: 16px; margin-top: 1px; border-radius: 50%; border: 1.5px solid rgba(42,35,24,.5); background: transparent; transition: background .15s, border-color .15s; }
+.postit .pnext .ck::after { content: ""; position: absolute; left: 4.5px; top: 1.5px; width: 3.5px; height: 7px; border: solid #fff; border-width: 0 1.8px 1.8px 0; transform: rotate(45deg); opacity: 0; transition: opacity .15s; }
+.postit .pnext .ck svg { display: none; }
+.postit .pnext .ck:not(:disabled):hover { background: #2a2318; border-color: #2a2318; }
+.postit .pnext .ck:not(:disabled):hover::after { opacity: 1; }
 .postit .pnext .ck:disabled { opacity: .35; cursor: default; }
-.postit .pnext .nx { flex: 1; font-size: 12.5px; font-weight: 600; line-height: 1.35; outline: 0; overflow-wrap: anywhere; cursor: text; user-select: text; }
+.postit .pnext .nx { flex: 1; font-size: 12.5px; font-weight: 600; line-height: 18px; outline: 0; overflow-wrap: anywhere; cursor: text; user-select: text; }
 .postit .pnext .nx:empty::before { content: attr(data-ph); font-weight: 500; color: rgba(42,35,24,.45); }
 span.actif { cursor: default; }
 span.actif:hover { background: rgba(42,35,24,.12); }
